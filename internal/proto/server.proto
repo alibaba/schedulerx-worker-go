@@ -1,0 +1,278 @@
+syntax = "proto2";
+
+option go_package = "./schedulerx";
+
+import "common.proto";
+
+//Server submit job instance to Worker
+message ServerSubmitJobInstanceRequest {
+    required int64 job_id = 1;
+    required int64 job_instance_id = 2;
+    required int64 schedule_time = 3;
+    required int64 data_time = 4;
+    required string job_type = 5;
+    required string execute_mode = 6;
+    required string content = 7;
+    required string user = 8;
+    optional string xattrs = 9;
+    optional string parameters = 10;
+    repeated string workers = 11;
+    required int32 job_concurrency = 12;
+    required int32 region_id = 13;
+    required int64 app_group_id = 14;
+    optional string instance_parameters = 15;
+    repeated UpstreamData upstreamData = 16;
+    optional string group_id = 17;
+    optional int32 time_type = 18;
+    optional string time_expression = 19;
+    optional int32 max_attempt = 20;
+    optional int32 attempt = 21;
+    optional int64 wf_instance_id = 22;
+    optional string job_name = 23;
+    optional string namespace = 24;
+    optional int32 trigger_type = 25;
+    optional int32 route_strategy_type = 26;
+    optional string route_strategy_content = 27;
+    repeated LabelWorkerAddrsEntry label_worker_addrs_map = 28;
+    optional string template = 29;
+}
+
+message ServerSubmitJobInstanceResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+}
+
+
+//Server kill job instance to Worker
+message ServerKillJobInstanceRequest {
+    required int64 job_id = 1;
+    required int64 job_instance_id = 2;
+    optional string user = 3;
+    optional bool destory_job = 4;
+    optional string job_type = 5;
+    optional string content = 6;
+    optional string namespace = 7;
+    optional string xattrs = 8;
+    optional string execute_mode = 9;
+    optional int64 app_group_id = 10;
+}
+
+message ServerKillJobInstanceResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+}
+
+//Server kill task intance to Worker
+message ServerKillTaskRequest {
+    required int64 job_id = 1;
+    required int64 job_instance_id = 2;
+    required int64 task_id = 3;
+    optional string user = 4;
+    required string worker_id = 5;
+    required string worker_addr = 6;
+}
+
+message ServerKillTaskResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+}
+
+// create region
+message ServerCreateRegionRequest {
+    required string name = 1;
+    required string description = 2;
+    required string user = 3;
+}
+
+message ServerCreateRegionResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+}
+
+
+// create app
+message ServerCreateAppRequest {
+    required string name = 1;
+    required string description = 2;
+    required int32 region_id = 3;
+    required string creator = 4;
+}
+
+message ServerCreateAppResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+}
+
+
+// retry tasks
+message RetryTaskEntity {
+    required int64 task_id = 1;
+    required string task_name = 2;
+    required string worker_addr = 3;
+    required int32 old_status = 4;
+}
+
+message ServerRetryTasksRequest {
+    required int64 job_id = 1;
+    required int64 job_instance_id = 2;
+    required int64 schedule_time = 3;
+    required int64 data_time = 4;
+    required string job_type = 5;
+    required string execute_mode = 6;
+    required string content = 7;
+    required string user = 8;
+    optional string xattrs = 9;
+    optional string parameters = 10;
+    repeated string workers = 11;
+    required int32 job_concurrency = 12;
+    required int32 region_id = 13;
+    required int64 app_group_id = 14;
+    optional string instance_parameters = 15;
+    repeated UpstreamData upstreamData = 16;
+    optional string group_id = 17;
+    optional int32 time_type = 18;
+    optional string time_expression = 19;
+    optional int32 max_attempt = 20;
+    optional int32 attempt = 21;
+    optional int64 wf_instance_id = 22;
+    repeated RetryTaskEntity retry_task_entity = 23;
+    optional string job_name = 24;
+}
+
+message ServerRetryTasksResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+}
+
+
+// tail log
+message ServerTailLogRequest {
+    required int64 job_id = 1;
+    required int64 job_instance_id = 2;
+    optional int64 task_id = 3 [default = 1] ;
+    required int32 num = 4;
+    required int64 schedule_time = 5;
+}
+
+message ServerTailLogResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+    repeated string line = 3;
+}
+
+
+// read log by lines
+message ServerReadLogRequest {
+    required int64 job_id = 1;
+    required int64 job_instance_id = 2;
+    optional int64 task_id = 3 [default = 1] ;
+    required int64 schedule_time = 4;
+    required int64 offset = 5;
+    required int32 size = 6;
+}
+
+message ServerReadLogResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+    repeated string line = 3;
+    optional int64 offset = 4;
+    required bool is_end = 5;
+}
+
+// read log by chars
+message ServerReadLogCharsRequest {
+    required int64 job_id = 1;
+    required int64 job_instance_id = 2;
+    optional int64 task_id = 3 [default = 1] ;
+    required int64 schedule_time = 4;
+    required int64 offset = 5;
+    required int32 size = 6;
+}
+
+message ServerReadLogCharsResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+    optional string log = 3;
+    optional int64 offset = 4;
+    optional bool is_end = 5;
+}
+
+
+// server check if worker is alive
+message ServerCheckTaskMasterRequest {
+    required int64 job_instance_id = 1;
+}
+
+message ServerCheckTaskMasterResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+}
+
+
+// thread dump
+message ServerThreadDumpRequest {
+    required int64 job_id = 1;
+    required int64 job_instance_id = 2;
+    optional int64 task_id = 3 [default = 1] ;
+    optional int32 line = 4 [default = 20] ;
+}
+
+message ServerThreadDumpResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+    repeated string line = 3;
+}
+
+
+// push log config
+message ServerPushLogConfigRequest {
+    required bool enable = 1;
+    optional string config = 2;
+    optional string type = 3;
+    optional string level = 4;
+    optional string sls_ak = 5;
+    optional string sls_sk = 6;
+}
+
+message ServerPushLogConfigResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+}
+
+
+//  Sync worker k8s job
+message ServerSyncK8sJobRequest {
+    optional int64 app_group_id = 1;
+}
+
+message ServerSyncK8sJobResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+    repeated string jobYaml = 3;
+}
+
+
+//  Sync worker k8s cron job
+message ServerSyncK8sCronJobRequest {
+    optional int64 app_group_id = 1;
+}
+
+message ServerSyncK8sCronJobResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+    repeated string cronJobYaml = 3;
+}
+
+
+// Server Callback calendar
+message ServerCallbackCalendarRequest {
+    required string processor = 1;
+    required int64 timestamp = 2;
+    required int64 job_instance_id = 3;
+}
+
+message ServerCallbackCalendarResponse {
+    required bool success = 1;
+    optional string message = 2 [default = ""];
+    optional bool result = 3;
+}

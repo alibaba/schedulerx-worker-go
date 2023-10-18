@@ -1,0 +1,13 @@
+syntax = "proto2";
+
+option go_package = "./schedulerx";
+
+message UpstreamData {
+	required string job_name = 1;
+	required string data = 2;
+}
+
+message LabelWorkerAddrsEntry {
+	optional string label = 1;
+	repeated string workerAddrs = 2;
+}

@@ -1,0 +1,436 @@
+syntax = "proto2";
+
+option go_package = "./schedulerx";
+
+import "common.proto";
+
+//Worker report heartbeat to Server
+message WorkerHeartBeatRequest {
+	required string group_id = 1;
+	required string version = 2;
+	required string worker_id = 3;
+	optional string metrics_json = 4;
+	repeated int64 job_instance_id = 5;
+	optional string starter = 6;
+	optional int64 app_group_id = 7;
+	optional string source = 8;
+	optional string label = 9;
+	optional bool online = 10;
+	optional string app_key = 11;
+}
+
+message WorkerHeartBeatResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+}
+
+//TaskMaster start container
+message MasterStartContainerRequest {
+	required int64 job_id = 1;
+	required int64 job_instance_id = 2;
+	required int64 task_id = 3;
+	required int64 schedule_time = 4;
+	required int64 data_time = 5;
+	required string job_type = 6;
+	required string content = 7;
+	required string user = 8;
+	optional string parameters = 9;
+	required string instance_master_akka_path = 10;
+	optional string task_name = 11;
+	optional bytes task = 12;
+	optional int32 consumer_num = 13;
+	required string group_id = 14;
+	optional string instance_parameters = 15;
+	repeated UpstreamData upstreamData = 16;
+	optional int32 max_attempt = 17;
+	optional int32 attempt = 18;
+	optional int32 task_max_attempt = 19;
+	optional int32 task_attempt_interval = 20;
+	optional bool failover = 21 [default = false];
+	optional int64 wf_instance_id = 22;
+	optional int64 serial_num = 23;
+	optional string execute_mode = 24;
+	optional string job_name = 25;
+	optional int32 sharding_num = 26;
+	optional int32 time_type = 27;
+	optional string time_expression = 28;
+	optional string xattrs = 29;
+	optional string namespace = 30;
+	optional int32 trigger_type = 31;
+	optional string template = 32;
+	optional int64 app_group_id = 33;
+}
+
+message MasterStartContainerResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+}
+
+//TaskMaster batch start containers
+message MasterBatchStartContainersRequest {
+	required int64 job_instance_id = 1;
+	repeated MasterStartContainerRequest start_reqs = 2;
+	optional int64 job_id = 3;
+	optional int64 serial_num = 4;
+
+}
+
+message MasterBatchStartContainersResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	repeated int64 failed_taskIds = 3;
+	optional string metrics_json = 4;
+}
+
+//TaskMaster kill container
+message MasterKillContainerRequest {
+	required int64 job_id = 1;
+	required int64 job_instance_id = 2;
+	optional int64 task_id = 3;
+	optional string user = 4;
+	required bool mayInterruptIfRunning = 5;
+	optional int64 app_group_id = 6;
+}
+
+message MasterKillContainerResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+}
+
+
+//TaskMaster destroy containerPool by jobInstance when finished
+message MasterDestroyContainerPoolRequest {
+	required int64 job_instance_id = 1;
+	optional int64 job_id = 2;
+	optional string worker_id_addr = 3;
+	optional int64 delivery_id = 4;
+	optional bool already_unConfirm_retry = 5;
+	optional int64 serial_num = 6;
+}
+
+message MasterDestroyContainerPoolResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	optional int64 delivery_id = 3;
+}
+
+
+//TaskMaster check worker if alive
+message MasterCheckWorkerAliveRequest {
+	required int64 job_instance_id = 1;
+	optional string dispatch_mode = 2;
+}
+
+message MasterCheckWorkerAliveResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	optional string metrics_json = 3;
+}
+
+
+//TaskMaster report job instance status to Server
+message WorkerReportJobInstanceStatusRequest {
+	required int64 job_id = 1;
+	required int64 job_instance_id = 2;
+	required int32 status = 3;
+	optional string result = 4;
+	optional string progress = 5;
+	optional int64 delivery_id = 6;
+	optional bool already_unConfirm_retry = 7;
+	optional string group_id = 8;
+	optional string traceId = 9;
+}
+
+message WorkerReportJobInstanceStatusResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	required int64 delivery_id = 3;
+}
+
+
+//TaskMaster report progress to Server
+message WorkerReportJobInstanceProgressRequest {
+	required int64 job_id = 1;
+	required int64 job_instance_id = 2;
+	required string progress = 3;
+	optional int32 trigger_times = 4;
+}
+
+message WorkerReportJobInstanceProgressResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+}
+
+
+//ServerPersistence batch update task status, e.g. worker is down
+message WorkerBatchUpdateTaskStatusRequest {
+	required int64 job_instance_id = 1;
+	required int32 status = 2;
+	optional string worker_addr = 3;
+	optional string worker_id = 4;
+}
+
+message WorkerBatchUpdateTaskStatusResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	optional int32 affect_cnt = 3;
+}
+
+
+
+// MapJobProcessor map tasks to MapTaskMaster
+message WorkerMapTaskRequest {
+	required int64 job_id = 1;
+	required int64 job_instance_id = 2;
+	required int64 task_id = 3;
+	required string task_name = 4;
+	repeated bytes task_body = 5;
+}
+
+message WorkerMapTaskResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	optional bool overload = 3;
+}
+
+
+// Worker clear tasks by jobInstanceId to Server
+message WorkerClearTasksRequest {
+	required int64 job_instance_id = 1;
+}
+
+message WorkerClearTasksResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	optional int32 count = 3;
+}
+
+
+// Worker create a task to Server
+message WorkerCreateTaskRequest {
+	required int64 job_id = 1;
+	required int64 job_instance_id = 2;
+	required int64 task_id = 3;
+	required string task_name = 4;
+	required bytes task_body = 5;
+	optional int64 delivery_id = 6;
+	optional string label_map = 7;
+}
+
+message WorkerCreateTaskResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	optional int64 delivery_id = 3;
+}
+
+// Worker batch create tasks to Server
+message WorkerBatchCreateTasksRequest {
+	required int64 job_instance_id = 1;
+	repeated WorkerCreateTaskRequest task = 2;
+	optional int64 delivery_id = 3;
+	optional string worker_id = 4;
+	optional string worker_addr = 5;
+
+}
+
+message WorkerBatchCreateTasksResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	optional int64 delivery_id = 3;
+}
+
+// Worker report task status to Server
+message WorkerReportTaskStatusRequest {
+	required string unique_id = 1;
+	required int32 status = 2;
+	optional string worker_address = 3;
+	optional string worker_id = 4;
+	optional int64 delivery_id = 5;
+	required int64 job_instance_id = 6;
+}
+
+message WorkerReportTaskStatusResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	optional int64 delivery_id = 3;
+}
+
+// Worker batch report task statuses to Server
+message WorkerBatchReportTaskStatuesRequest {
+	required int64 job_instance_id = 1;
+	repeated BatchTaskStatues task_statues = 2;
+	optional int64 delivery_id = 3;
+	optional bool already_unConfirm_retry = 4;
+	optional string group_id = 5;
+}
+
+message WorkerBatchReportTaskStatuesResponse{
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	optional int64 delivery_id = 3;
+	optional int32 affect_cnt = 4;
+}
+
+message BatchTaskStatues {
+	required int32 status = 1;
+	optional string worker_addr = 2;
+	optional string worker_id = 3;
+	repeated int64 task_ids = 4;
+	repeated TaskStatusInfo task_statues = 5;
+}
+
+
+// Worker report task status to Server
+message WorkerReportTaskListStatusRequest {
+	required int64 job_instance_id = 1;
+	repeated int64 task_id = 2;
+	required int32 status = 3;
+}
+
+message WorkerReportTaskListStatusResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+}
+
+
+// Worker report task progress to Server
+message WorkerReportTaskProgressRequest {
+	required string unique_id = 1;
+	required float progress = 2;
+}
+
+message WorkerReportTaskProgressResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+}
+
+
+// Worker pull tasks from Server
+message TaskMessage {
+	required int64 task_id = 1;
+	required string task_name = 2;
+	required bytes task_body = 3;
+}
+
+message WorkerPullTasksRequest {
+	required int64 job_instance_id = 1;
+	required int32 page_size = 2;
+}
+
+message WorkerPullTasksResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	repeated TaskMessage task_message = 3;
+}
+
+
+// Worker query jobInstance status
+message WorkerQueryJobInstanceStatusRequest {
+	required int64 job_instance_id = 1;
+}
+
+message WorkerQueryJobInstanceStatusResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	required int32 status = 3;
+}
+
+
+// Container report task status
+message ContainerReportTaskStatusRequest {
+	required int64 job_id = 1;
+	required int64 job_instance_id = 2;
+	required int64 task_id = 3;
+	required int32 status = 4;
+	required string worker_addr = 5;
+	required string worker_id = 6;
+	optional string result = 7;
+	optional string task_name = 8;
+	optional string instance_master_actorPath = 9;
+	optional int32 time_type = 10;
+	optional int64 serial_num = 11;
+	optional string progress = 12;
+	optional string traceId = 13;
+}
+
+message ContainerReportTaskStatusResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+}
+
+message ContainerBatchReportTaskStatuesRequest {
+	required int64 job_id = 1;
+	required int64 job_instance_id = 2;
+	repeated TaskStatusInfo task_statues = 3;
+	required string task_master_akka_path = 4;
+	required string worker_addr = 5;
+	required string worker_id = 6;
+	optional int64 delivery_id = 7;
+	optional bool already_unConfirm_retry = 8;
+	optional int64 serial_num = 9;
+	optional string metrics_json = 10;
+}
+
+message TaskStatusInfo {
+	required int64 task_id = 1;
+	required int32 status = 2;
+	optional string result = 3;
+	optional string task_name = 4;
+	optional string progress = 5;
+	optional string traceId = 6;
+}
+
+message ContainerBatchReportTaskStatuesResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	optional int64 delivery_id = 3;
+}
+
+message ContainerCheckZombieRequest {
+	repeated int64 job_instance_id = 1;
+}
+
+message ContainerCheckZombieResponse {
+	repeated int64 zombie_job_instance_id = 1;
+}
+
+//Pull model, master notify all workers to init PullManager
+message MasterNotifyWorkerPullRequest {
+	required int64 job_instance_id = 1;
+	required int32 page_size = 2;
+	required int32 queue_size = 3;
+	required int32 consumer_size = 4;
+	required string task_master_akka_path = 5;
+	optional int64 serial_num = 6;
+}
+
+message MasterNotifyWorkerPullResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+}
+
+
+//PullThread pull container requests from TaskMaster
+message PullTaskFromMasterRequest {
+	required int64 job_instance_id = 1;
+	required int32 page_size = 2;
+	required string worker_id_addr = 3;
+	optional int64 serial_num = 4;
+}
+
+message PullTaskFromMasterResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+	repeated MasterStartContainerRequest request = 3;
+}
+
+message WorkerOfflineRequest {
+	required int64 job_instance_id = 1;
+	required string worker_id_addr = 2;
+	required bool shutdown = 3;
+}
+
+message WorkerOfflineResponse {
+	required bool success = 1;
+	optional string message = 2 [default = ""];
+}
