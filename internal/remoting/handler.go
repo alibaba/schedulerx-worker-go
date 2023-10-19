@@ -91,7 +91,7 @@ func OnMsgReceived(ctx context.Context) {
 		}
 		msg, senderPath, err := codec.DecodeAkkaMessage(akkaMsg)
 		if err != nil {
-			logger.Errorf("Read akka message failed, err=%s", err.Error())
+			logger.Infof("Read akka message failed, reason=%s", err.Error())
 			continue
 		}
 
