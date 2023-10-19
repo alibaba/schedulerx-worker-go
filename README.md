@@ -43,16 +43,16 @@ package main
 
 import (
 	"fmt"
-	"time"
-
 	"github.com/alibaba/schedulerx-worker-go/processor"
+	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
+	"time"
 )
 
 var _ processor.Processor = &HelloWorld{}
 
 type HelloWorld struct{}
 
-func (h *HelloWorld) Process(ctx *processor.JobContext) (*processor.ProcessResult, error) {
+func (h *HelloWorld) Process(ctx *jobcontext.JobContext) (*processor.ProcessResult, error) {
 	fmt.Println("[Process] Start process my task: Hello world!")
 	// mock execute task
 	time.Sleep(3 * time.Second)
@@ -61,6 +61,7 @@ func (h *HelloWorld) Process(ctx *processor.JobContext) (*processor.ProcessResul
 	fmt.Println("[Process] End process my task: Hello world!")
 	return ret, nil
 }
+
 ```
 
 4、注册client和job
@@ -73,19 +74,20 @@ import (
 )
 
 func main() {
-	// 可以填写第一步获取的配置
-	client, err := schedulerx.GetClient(&schedulerx.Config{
-		Endpoint: "xxxx",
-		GroupId:    "xxxxx",
-		Namespace:  "xxxx",
-		AppKey:     "xxxx",
-	})
+	// This is just an example, the real configuration needs to be obtained from the platform
+	cfg := &schedulerx.Config{
+		Endpoint:  "acm.aliyun.com",
+		Namespace: "433d8b23-06e9-408c-aaaa-90d4d1b9a4af",
+		GroupId:   "gojob-test",
+		AppKey:    "xxxxxxx",
+	}
+	client, err := schedulerx.GetClient(cfg)
 	if err != nil {
 		panic(err)
 	}
 	task := &HelloWorld{}
 
-	// 给你的任务取一个名字，并注册到client中
+	// The name HelloWorld registered here must be consistent with the configured on the platform
 	client.RegisterTask("HelloWorld", task)
 	select {}
 }
