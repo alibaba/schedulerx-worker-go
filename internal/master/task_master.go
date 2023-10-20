@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/alibaba/schedulerx-worker-go/internal/remoting/trans"
 	"sync"
 
 	"go.uber.org/atomic"
@@ -68,7 +69,7 @@ func NewTaskMaster(jobInstanceInfo *common.JobInstanceInfo) *TaskMaster {
 		jobInstanceInfo:     jobInstanceInfo,
 		serialNum:           atomic.NewInt64(0),
 	}
-
+	taskMaster.statusHandler = NewBaseUpdateInstanceStatusHandler(jobInstanceInfo, taskMaster)
 	return taskMaster
 }
 
@@ -366,4 +367,61 @@ func (m *TaskMaster) convert2StartContainerRequest(jobInstanceInfo *common.JobIn
 	req.TimeExpression = proto.String(jobInstanceInfo.GetTimeExpression())
 
 	return req, nil
+}
+
+func (m *TaskMaster) SendKillContainerRequest(mayInterruptIfRunning bool, allWorkers ...string) {
+	uniqueId := utils.GetUniqueIdWithoutTaskId(m.jobInstanceInfo.GetJobId(), m.jobInstanceInfo.GetJobInstanceId())
+
+	if mayInterruptIfRunning {
+		for _, workIdAddr := range allWorkers {
+			req := &schedulerx.MasterKillContainerRequest{
+				JobId:                 proto.Int64(m.jobInstanceInfo.GetJobId()),
+				JobInstanceId:         proto.Int64(m.jobInstanceInfo.GetJobInstanceId()),
+				MayInterruptIfRunning: proto.Bool(mayInterruptIfRunning),
+				AppGroupId:            proto.Int64(m.jobInstanceInfo.GetAppGroupId()),
+			}
+
+			go func(addr string) {
+				err := trans.SendKillContainerReq(context.Background(), req, addr)
+				if err != nil {
+					logger.Warnf("send kill instance request exception, workIdAddr:%s, uniqueId:%s", addr, uniqueId)
+				}
+			}(workIdAddr)
+		}
+	} else {
+		wg := sync.WaitGroup{}
+		errCh := make(chan error, len(allWorkers))
+
+		for _, workerIdAddr := range allWorkers {
+			wg.Add(1)
+			go func(addr string) {
+				defer wg.Done()
+
+				req := &schedulerx.MasterKillContainerRequest{
+					JobId:                 proto.Int64(m.jobInstanceInfo.GetJobId()),
+					JobInstanceId:         proto.Int64(m.jobInstanceInfo.GetJobInstanceId()),
+					MayInterruptIfRunning: proto.Bool(mayInterruptIfRunning),
+					AppGroupId:            proto.Int64(m.jobInstanceInfo.GetAppGroupId()),
+				}
+				err := trans.SendKillContainerReq(context.Background(), req, addr)
+				if err != nil {
+					logger.Warnf("send kill instance request exception, worker:{}, uniqueId:{}", addr, uniqueId)
+					errCh <- err
+					return
+				}
+			}(workerIdAddr)
+		}
+
+		go func() {
+			wg.Wait()
+			close(errCh)
+		}()
+
+		for err := range errCh {
+			if err != nil {
+				return
+			}
+		}
+	}
+
 }

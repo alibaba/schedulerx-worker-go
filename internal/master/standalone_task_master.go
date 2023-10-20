@@ -121,7 +121,7 @@ func (m *StandaloneTaskMaster) handleTask(ctx context.Context, req *schedulerx.M
 		ret = t.End(jobCtx, ret)
 	}
 	if err != nil {
-		if err := trans.SendReportTaskStatusReq(ctx, m.convert2ReportTaskStatusRequest(jobCtx, processor.InstanceStatusFailed, ret.Result(), "1.0", "")); err != nil {
+		if err := trans.SendReportTaskStatusReq(ctx, m.convert2ReportTaskStatusRequest(jobCtx, processor.InstanceStatusFailed, ret.GetResult(), "1.0", "")); err != nil {
 			logger.Errorf("Report task status=%v failed, jobCtx=%+v, err=%s ", common.TaskStatusFailed, jobCtx, err.Error())
 			return
 		}
@@ -129,7 +129,7 @@ func (m *StandaloneTaskMaster) handleTask(ctx context.Context, req *schedulerx.M
 		return
 	}
 
-	if err := trans.SendReportTaskStatusReq(ctx, m.convert2ReportTaskStatusRequest(jobCtx, ret.Status(), ret.Result(), "1.0", "")); err != nil {
+	if err := trans.SendReportTaskStatusReq(ctx, m.convert2ReportTaskStatusRequest(jobCtx, ret.GetStatus(), ret.GetResult(), "1.0", "")); err != nil {
 		logger.Errorf("Report task status=%v failed, jobCtx=%+v, err=%s ", common.TaskStatusSucceed, jobCtx, err.Error())
 		return
 	}
@@ -205,7 +205,18 @@ func (m *StandaloneTaskMaster) selectWorker() string {
 }
 
 func (m *StandaloneTaskMaster) KillInstance(reason string) error {
-	// Do nothing
+	err := m.TaskMaster.KillInstance(reason)
+	if err != nil {
+		return err
+	}
+
+	m.TaskMaster.SendKillContainerRequest(true, m.GetLocalWorkerIdAddr())
+	_ = m.updateNewInstanceStatus(m.GetSerialNum(), m.GetJobInstanceInfo().GetJobInstanceId(), processor.InstanceStatusFailed, reason)
+
+	if !m.instanceStatus.IsFinished() {
+		m.instanceStatus = processor.InstanceStatusFailed
+	}
+
 	return nil
 }
 

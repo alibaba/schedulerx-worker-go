@@ -114,3 +114,32 @@ func SendServerKillJobInstanceResp(ctx context.Context, resp *schedulerx.ServerK
 	}
 	return WriteAkkaMsg(akkaMsg, conn)
 }
+
+func SendKillContainerReq(ctx context.Context, req *schedulerx.MasterKillContainerRequest, workIdAddr string) error {
+	conn, err := connpool.GetConnPool().Get(ctx)
+	if err != nil {
+		return err
+	}
+
+	akkaMsg, err := codec.EncodeAkkaMessage(
+		req,
+		fmt.Sprintf("akka.tcp://server@%s/", conn.RemoteAddr().String()),
+		fmt.Sprintf("akka.tcp://%s/user/container_routing/%s", workIdAddr, utils.GenPathTpl()),
+		"com.alibaba.schedulerx.protocol.Worker$MasterKillContainerRequest",
+		codec.WithMessageContainerSerializer(),
+		codec.WithSelectionEnvelopePattern([]*akka.Selection{
+			{
+				Type:    akka.PatternType_CHILD_NAME.Enum(),
+				Matcher: proto.String("user"),
+			},
+			{
+				Type:    akka.PatternType_CHILD_NAME.Enum(),
+				Matcher: proto.String("container_router"),
+			},
+		}))
+	if err != nil {
+		return err
+	}
+
+	return WriteAkkaMsg(akkaMsg, conn)
+}

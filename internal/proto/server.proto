@@ -62,7 +62,7 @@ message ServerKillJobInstanceResponse {
     optional string message = 2 [default = ""];
 }
 
-//Server kill task intance to Worker
+//Server kill task instance to Worker
 message ServerKillTaskRequest {
     required int64 job_id = 1;
     required int64 job_instance_id = 2;

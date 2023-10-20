@@ -53,7 +53,7 @@ func NewProcessResult(opts ...Option) *ProcessResult {
 	return pr
 }
 
-func (pr *ProcessResult) Status() InstanceStatus {
+func (pr *ProcessResult) GetStatus() InstanceStatus {
 	return pr.status
 }
 
@@ -61,7 +61,7 @@ func (pr *ProcessResult) SetStatus(status InstanceStatus) {
 	pr.status = status
 }
 
-func (pr *ProcessResult) Result() string {
+func (pr *ProcessResult) GetResult() string {
 	return pr.result
 }
 
