@@ -43,9 +43,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/alibaba/schedulerx-worker-go/processor"
-	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
 	"time"
+
+ 	"github.com/alibaba/schedulerx-worker-go/processor"
+	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
 )
 
 var _ processor.Processor = &HelloWorld{}
@@ -64,7 +65,7 @@ func (h *HelloWorld) Process(ctx *jobcontext.JobContext) (*processor.ProcessResu
 
 ```
 
-4、注册client和job
+4、注册 client 和 job
 
 ```
 package main
