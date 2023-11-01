@@ -181,6 +181,20 @@ func convert2JobInstanceInfo(req *schedulerx.ServerSubmitJobInstanceRequest) *co
 	return jobInstanceInfo
 }
 
+func convertKillJobInstanceReq2JobInstanceInfo(req *schedulerx.ServerKillJobInstanceRequest) *common.JobInstanceInfo {
+	jobInstanceInfo := new(common.JobInstanceInfo)
+	jobInstanceInfo.SetJobId(req.GetJobId())
+	jobInstanceInfo.SetJobInstanceId(req.GetJobInstanceId())
+	jobInstanceInfo.SetUser(req.GetUser())
+	jobInstanceInfo.SetJobType(req.GetJobType())
+	jobInstanceInfo.SetContent(req.GetContent())
+	jobInstanceInfo.SetAppGroupId(req.GetAppGroupId())
+	jobInstanceInfo.SetXattrs(req.GetXattrs())
+	jobInstanceInfo.SetExecuteMode(req.GetExecuteMode())
+	jobInstanceInfo.SetAppGroupId(req.GetAppGroupId())
+	return jobInstanceInfo
+}
+
 func convert2JobInstanceData(datas []*schedulerx.UpstreamData) []*common.JobInstanceData {
 	var ret []*common.JobInstanceData
 	for _, data := range datas {
@@ -196,11 +210,12 @@ func convert2JobInstanceData(datas []*schedulerx.UpstreamData) []*common.JobInst
 
 func handleKillJobInstance(ctx context.Context, req *schedulerx.ServerKillJobInstanceRequest, senderPath string) error {
 	logger.Infof("handleKillJobInstance, jobInstanceId=%d ", req.GetJobInstanceId())
+	uniqueId := utils.GetUniqueIdWithoutTaskId(req.GetJobId(), req.GetJobInstanceId())
 	if !masterpool.GetTaskMasterPool().Contains(req.GetJobInstanceId()) {
 		errMsg := fmt.Sprintf("%d is not exist", req.GetJobInstanceId())
 		logger.Infof(errMsg)
 		resp := &schedulerx.ServerKillJobInstanceResponse{
-			Success: proto.Bool(true),
+			Success: proto.Bool(false),
 			Message: proto.String(errMsg),
 		}
 		return trans.SendServerKillJobInstanceResp(ctx, resp, senderPath)
@@ -208,12 +223,23 @@ func handleKillJobInstance(ctx context.Context, req *schedulerx.ServerKillJobIns
 		errMsg := fmt.Sprintf("%d killed from server", req.GetJobInstanceId())
 		logger.Infof(errMsg)
 		resp := &schedulerx.ServerKillJobInstanceResponse{
-			Success: proto.Bool(false),
-			Message: proto.String(errMsg),
+			Success: proto.Bool(true),
 		}
+
+		jobInstanceInfo := convertKillJobInstanceReq2JobInstanceInfo(req)
+		taskMaster := masterpool.GetTaskMasterPool().Get(jobInstanceInfo.GetJobInstanceId())
+		if err := taskMaster.KillInstance("killed from server"); err != nil {
+			resp = &schedulerx.ServerKillJobInstanceResponse{
+				Success: proto.Bool(false),
+				Message: proto.String(err.Error()),
+			}
+			logger.Errorf("[JobInstanceActor]handleKillJobInstance error, uniqueId:%s", uniqueId)
+		}
+
 		if err := trans.SendServerKillJobInstanceResp(ctx, resp, senderPath); err != nil {
 			return err
 		}
+
 		logger.Infof("Kill jobInstanceId=%d succeed", req.GetJobInstanceId())
 		return nil
 	}
