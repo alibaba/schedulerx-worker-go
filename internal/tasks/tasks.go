@@ -44,5 +44,8 @@ func (tl *TaskMap) Register(name string, task processor.Processor) {
 
 func (tl *TaskMap) Find(name string) (processor.Processor, bool) {
 	task, ok := tl.tasks.Load(name)
-	return task.(processor.Processor), ok
+	if ok && task != nil {
+		return task.(processor.Processor), ok
+	}
+	return nil, false
 }

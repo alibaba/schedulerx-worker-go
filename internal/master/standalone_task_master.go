@@ -102,7 +102,7 @@ func (m *StandaloneTaskMaster) handleTask(ctx context.Context, req *schedulerx.M
 			logger.Errorf("Report task status=%v failed, jobCtx=%+v, err=%s ", common.TaskStatusFailed, jobCtx, err.Error())
 			return
 		}
-		logger.Errorf("Process task=%s failed, because it's unregistered. ", req.GetTaskName())
+		logger.Errorf("Process task=%s failed, because it's unregistered. ", jobName)
 		return
 	}
 
