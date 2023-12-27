@@ -18,6 +18,7 @@ package config
 
 import (
 	"sync"
+	"time"
 
 	"github.com/alibaba/schedulerx-worker-go/internal/constants"
 )
@@ -41,12 +42,6 @@ func GetWorkerConfig() *WorkerConfig {
 }
 
 type Option func(*WorkerConfig)
-
-func WithDebugMode() Option {
-	return func(config *WorkerConfig) {
-		config.isDebugMode = true
-	}
-}
 
 func WithEnableShareContainerPool() Option {
 	return func(config *WorkerConfig) {
@@ -72,6 +67,18 @@ func WithEnableDispatchSecondDelayStandalone() Option {
 	}
 }
 
+func WithDisableBroadcastMasterExec() Option {
+	return func(config *WorkerConfig) {
+		config.broadcastMasterExecEnable = false
+	}
+}
+
+func WithBroadcastDispatchRetryTimes(broadcastDispatchRetryTimes int32) Option {
+	return func(config *WorkerConfig) {
+		config.broadcastDispatchRetryTimes = broadcastDispatchRetryTimes
+	}
+}
+
 func WithMapMasterPageSize(mapMasterPageSize int32) Option {
 	return func(config *WorkerConfig) {
 		config.mapMasterPageSize = mapMasterPageSize
@@ -87,6 +94,12 @@ func WithMapMasterQueueSize(mapMasterQueueSize int32) Option {
 func WithMapMasterDispatcherSize(mapMasterDispatcherSize int32) Option {
 	return func(config *WorkerConfig) {
 		config.mapMasterDispatcherSize = mapMasterDispatcherSize
+	}
+}
+
+func WithMapMasterStatusCheckInterval(mapMasterStatusCheckInterval time.Duration) Option {
+	return func(config *WorkerConfig) {
+		config.mapMasterStatusCheckInterval = mapMasterStatusCheckInterval
 	}
 }
 
@@ -114,9 +127,9 @@ func WithTaskBodySizeMax(taskBodySizeMax int32) Option {
 	}
 }
 
-func WithWorkerLabel(workerLabel string) Option {
+func WithActorSystemPort(port int32) Option {
 	return func(config *WorkerConfig) {
-		config.workerLabel = workerLabel
+		config.actorSystemPort = port
 	}
 }
 
@@ -131,23 +144,21 @@ func NewWorkerConfig(opts ...Option) *WorkerConfig {
 }
 
 type WorkerConfig struct {
-	isDebugMode                     bool
 	isShareContainerPool            bool
 	isMapMasterFailover             bool
 	isSecondDelayIntervalMS         bool
 	isDispatchSecondDelayStandalone bool
+	broadcastMasterExecEnable       bool
+	broadcastDispatchRetryTimes     int32
 	mapMasterPageSize               int32
 	mapMasterQueueSize              int32
 	mapMasterDispatcherSize         int32
+	mapMasterStatusCheckInterval    time.Duration
 	sharePoolSize                   int32
 	workerParallelTaskMaxSize       int32
 	workerMapPageSize               int32
 	taskBodySizeMax                 int32
-	workerLabel                     string
-}
-
-func (w *WorkerConfig) IsDebugMode() bool {
-	return w.isDebugMode
+	actorSystemPort                 int32
 }
 
 func (w *WorkerConfig) IsShareContainerPool() bool {
@@ -166,6 +177,14 @@ func (w *WorkerConfig) IsDispatchSecondDelayStandalone() bool {
 	return w.isDispatchSecondDelayStandalone
 }
 
+func (w *WorkerConfig) BroadcastMasterExecEnable() bool {
+	return w.broadcastMasterExecEnable
+}
+
+func (w *WorkerConfig) BroadcastDispatchRetryTimes() int32 {
+	return w.broadcastDispatchRetryTimes
+}
+
 func (w *WorkerConfig) MapMasterPageSize() int32 {
 	return w.mapMasterPageSize
 }
@@ -176,6 +195,10 @@ func (w *WorkerConfig) MapMasterQueueSize() int32 {
 
 func (w *WorkerConfig) MapMasterDispatcherSize() int32 {
 	return w.mapMasterDispatcherSize
+}
+
+func (w *WorkerConfig) MapMasterStatusCheckInterval() time.Duration {
+	return w.mapMasterStatusCheckInterval
 }
 
 func (w *WorkerConfig) SharePoolSize() int32 {
@@ -194,22 +217,24 @@ func (w *WorkerConfig) TaskBodySizeMax() int32 {
 	return w.taskBodySizeMax
 }
 
-func (w *WorkerConfig) WorkerLabel() string {
-	return w.workerLabel
+func (w *WorkerConfig) ActorSystemPort() int32 {
+	return w.actorSystemPort
 }
 
 func defaultWorkerConfig() *WorkerConfig {
 	return &WorkerConfig{
-		isDebugMode:                     false,
 		isSecondDelayIntervalMS:         false,
 		isShareContainerPool:            false,
 		isDispatchSecondDelayStandalone: false,
 		isMapMasterFailover:             true,
+		broadcastMasterExecEnable:       true,
+		broadcastDispatchRetryTimes:     constants.BroadcastDispatchRetryTimesDefault,
 		mapMasterPageSize:               constants.MapMasterPageSizeDefault,
 		mapMasterQueueSize:              constants.MapMasterQueueSizeDefault,
 		mapMasterDispatcherSize:         constants.MapMasterDispatcherSizeDefault,
+		mapMasterStatusCheckInterval:    constants.MapMasterStatusCheckIntervalDefault,
 		sharePoolSize:                   constants.SharedPoolSizeDefault,
-		workerParallelTaskMaxSize:       constants.ParallelTaskListSizeMax,
+		workerParallelTaskMaxSize:       constants.ParallelTaskListSizeMaxDefault,
 		workerMapPageSize:               constants.WorkerMapPageSizeDefault,
 		taskBodySizeMax:                 constants.TaskBodySizeMaxDefault,
 	}

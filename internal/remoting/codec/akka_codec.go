@@ -136,9 +136,9 @@ func DecodeAkkaMessage(msg *akka.AkkaProtocolMessage) (interface{}, string, erro
 		switch msg.Instruction.GetCommandType() {
 		case akka.CommandType_ASSOCIATE,
 			akka.CommandType_DISASSOCIATE,
+			akka.CommandType_HEARTBEAT,
 			akka.CommandType_DISASSOCIATE_SHUTTING_DOWN,
-			akka.CommandType_DISASSOCIATE_QUARANTINED,
-			akka.CommandType_HEARTBEAT:
+			akka.CommandType_DISASSOCIATE_QUARANTINED:
 			return msg.GetInstruction(), "", nil
 		default:
 			return nil, "", fmt.Errorf("Unknown msg instruction=%s, decode failed ", msg.Instruction.GetCommandType())
@@ -190,6 +190,36 @@ func DecodeAkkaMessage(msg *akka.AkkaProtocolMessage) (interface{}, string, erro
 			return msg, senderPath, nil
 		case "ServerKillJobInstanceRequest":
 			msg := new(schedulerx.ServerKillJobInstanceRequest)
+			if err := proto.Unmarshal(msgRawData, msg); err != nil {
+				return nil, "", err
+			}
+			return msg, senderPath, nil
+		case "ServerKillTaskRequest":
+			msg := new(schedulerx.ServerKillTaskRequest)
+			if err := proto.Unmarshal(msgRawData, msg); err != nil {
+				return nil, "", err
+			}
+			return msg, senderPath, nil
+		case "ServerCheckTaskMasterRequest":
+			msg := new(schedulerx.ServerCheckTaskMasterRequest)
+			if err := proto.Unmarshal(msgRawData, msg); err != nil {
+				return nil, "", err
+			}
+			return msg, senderPath, nil
+		case "MasterNotifyWorkerPullRequest":
+			msg := new(schedulerx.MasterNotifyWorkerPullRequest)
+			if err := proto.Unmarshal(msgRawData, msg); err != nil {
+				return nil, "", err
+			}
+			return msg, senderPath, nil
+		case "ServerThreadDumpRequest":
+			msg := new(schedulerx.ServerThreadDumpRequest)
+			if err := proto.Unmarshal(msgRawData, msg); err != nil {
+				return nil, "", err
+			}
+			return msg, senderPath, nil
+		case "ServerCallbackCalendarRequest":
+			msg := new(schedulerx.ServerCallbackCalendarRequest)
 			if err := proto.Unmarshal(msgRawData, msg); err != nil {
 				return nil, "", err
 			}

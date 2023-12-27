@@ -20,18 +20,20 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"net/url"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
-	atom "go.uber.org/atomic"
+	"github.com/alibaba/schedulerx-worker-go/internal/constants"
 )
 
 var (
-	seed              = atom.NewInt32(1000)
+	seed              = 1000
 	uid        uint64 = 0
-	deliveryId        = atom.NewInt64(0)
+	deliveryId int64  = 0
 )
 
 const (
@@ -69,13 +71,15 @@ func ShuffleStringSlice(nums []string) []string {
 }
 
 func GenPathTpl() string {
-	if seed.Load() == math.MaxInt32 {
-		seed.Store(0)
+	if seed == math.MaxInt32 {
+		seed = 0
 	}
-	return base64Func(seed.Inc(), pathTplPrefix)
+
+	seed++
+	return base64Func(seed, pathTplPrefix)
 }
 
-func base64Func(l int32, sb string) string {
+func base64Func(l int, sb string) string {
 	sb += string(base64Chars[l&63])
 	next := l >> 6
 	if next == 0 {
@@ -96,17 +100,40 @@ func GetHandshakeUid() uint64 {
 }
 
 func GetDeliveryId() int64 {
-	return deliveryId.Inc()
+	return atomic.AddInt64(&deliveryId, 1)
 }
 
-func IsValidDomain(domain string) bool {
-	_, err := url.ParseRequestURI(domain)
+func RemoveSliceElem(s []string, elem string) []string {
+	result := []string{}
+	for _, value := range s {
+		if value != elem {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func Int64SliceToStringSlice(intSlice []int64) []string {
+	strSlice := make([]string, len(intSlice))
+	for i, v := range intSlice {
+		strSlice[i] = strconv.FormatInt(v, 10)
+	}
+	return strSlice
+}
+
+func GetUserDiskSpacePercent() float32 {
+	var stat syscall.Statfs_t
+	err := syscall.Statfs("/", &stat)
 	if err != nil {
-		return false
+		return 0
 	}
-	url, err := url.Parse(domain)
-	if err != nil || url.Scheme == "" || url.Host == "" {
-		return false
-	}
-	return true
+	totalSpace := stat.Blocks * uint64(stat.Bsize)
+	freeSpace := stat.Bfree * uint64(stat.Bsize)
+	usedSpace := totalSpace - freeSpace
+	usedRatio := float32(usedSpace) / float32(totalSpace)
+	return usedRatio
+}
+
+func IsRootTask(taskName string) bool {
+	return taskName == constants.MapTaskRootName
 }

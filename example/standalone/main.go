@@ -30,9 +30,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	task := &HelloWorld{}
 
 	// The name HelloWorld registered here must be consistent with the configured on the platform
+	task := &HelloWorld{}
 	client.RegisterTask("HelloWorld", task)
 	select {}
 }

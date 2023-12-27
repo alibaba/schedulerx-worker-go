@@ -17,6 +17,7 @@ message WorkerHeartBeatRequest {
 	optional string label = 9;
 	optional bool online = 10;
 	optional string app_key = 11;
+	optional int32 rpc_port = 12;
 }
 
 message WorkerHeartBeatResponse {
