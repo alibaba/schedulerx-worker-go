@@ -20,12 +20,14 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
+
+	"github.com/shirou/gopsutil/disk"
 
 	"github.com/alibaba/schedulerx-worker-go/internal/constants"
 )
@@ -121,17 +123,16 @@ func Int64SliceToStringSlice(intSlice []int64) []string {
 	return strSlice
 }
 
-func GetUserDiskSpacePercent() float32 {
-	var stat syscall.Statfs_t
-	err := syscall.Statfs("/", &stat)
-	if err != nil {
-		return 0
+func GetUserDiskSpacePercent() (float64, error) {
+	path := "/"
+	if runtime.GOOS == "windows" {
+		path = "C:"
 	}
-	totalSpace := stat.Blocks * uint64(stat.Bsize)
-	freeSpace := stat.Bfree * uint64(stat.Bsize)
-	usedSpace := totalSpace - freeSpace
-	usedRatio := float32(usedSpace) / float32(totalSpace)
-	return usedRatio
+	info, err := disk.Usage(path)
+	if err != nil {
+		return 0, err
+	}
+	return info.UsedPercent, nil
 }
 
 func IsRootTask(taskName string) bool {

@@ -46,8 +46,11 @@ func NewBatchTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.
 
 // doMetricsCheck check indicators of the master
 func (m *BatchTaskMaster) doMetricsCheck() error {
-	usedSpacePercent := utils.GetUserDiskSpacePercent()
-	if usedSpacePercent > constants.UserSpacePercentMax {
+	diskUsedPercent, err := utils.GetUserDiskSpacePercent()
+	if err != nil {
+		return err
+	}
+	if diskUsedPercent > constants.UserSpacePercentMax {
 		return fmt.Errorf("used space beyond d% % ", constants.UserSpacePercentMax*100)
 	}
 	return nil
