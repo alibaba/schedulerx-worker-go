@@ -94,10 +94,8 @@ func GetHandshakeUid() uint64 {
 	if uid != 0 {
 		return uid
 	}
-	min := -2147483648
-	max := 2147483647
 	rand.Seed(time.Now().UnixNano())
-	uid = uint64(rand.Intn(max-min+1) + min)
+	uid = rand.Uint64()
 	return uid
 }
 
