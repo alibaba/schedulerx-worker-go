@@ -116,7 +116,7 @@ func (p *jobInstanceProcessor) SendUserMessage(pid *actor.PID, message interface
 		case *schedulerx.WorkerReportJobInstanceProgressRequest:
 			akkaMsg, err = codec.EncodeAkkaMessage(
 				msg,
-				fmt.Sprintf("akka.tcp://server@%s/user/map_master_router", conn.RemoteAddr().String()),
+				fmt.Sprintf("akka.tcp://server@%s/", conn.RemoteAddr().String()),
 				"",
 				"com.alibaba.schedulerx.protocol.Worker$WorkerReportJobInstanceProgressRequest",
 				codec.WithMessageContainerSerializer(),
