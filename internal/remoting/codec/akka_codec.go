@@ -224,6 +224,12 @@ func DecodeAkkaMessage(msg *akka.AkkaProtocolMessage) (interface{}, string, erro
 				return nil, "", err
 			}
 			return msg, senderPath, nil
+		case "WorkerReportJobInstanceStatusResponse":
+			msg := new(schedulerx.WorkerReportJobInstanceStatusResponse)
+			if err := proto.Unmarshal(msgRawData, msg); err != nil {
+				return nil, "", err
+			}
+			return msg, senderPath, nil
 		default:
 			return nil, "", fmt.Errorf("Unknown message type=%s, decode failed ", msgType)
 		}

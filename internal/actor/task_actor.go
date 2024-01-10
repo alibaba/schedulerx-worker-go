@@ -162,11 +162,11 @@ func (a *taskActor) handleTaskStatus(req *schedulerx.ContainerReportTaskStatusRe
 }
 
 func (a *taskActor) handleBatchTaskStatues(actorCtx actor.Context, req *schedulerx.ContainerBatchReportTaskStatuesRequest) {
-	logger.Infof("jobInstanceId=%v, batch receive task status reqs, size:%v, taskMasterPool=%v",
+	logger.Debugf("[taskActor] handleBatchTaskStatues, jobInstanceId=%v, batch receive task status reqs, size:%v, taskMasterPool=%v",
 		req.GetJobInstanceId(), len(req.GetTaskStatues()), masterpool.GetTaskMasterPool())
 	if taskMaster := masterpool.GetTaskMasterPool().Get(req.GetJobInstanceId()); taskMaster != nil {
 		if err := taskMaster.BatchUpdateTaskStatus(taskMaster, req); err != nil {
-			logger.Warnf("TaskMaster BatchUpdateTaskStatus failed in handleBatchTaskStatues, req=%+v, err=%s", req, err.Error())
+			logger.Warnf("[taskActor] TaskMaster BatchUpdateTaskStatus failed in handleBatchTaskStatues, req=%+v, err=%s", req, err.Error())
 		}
 	}
 	response := &schedulerx.ContainerBatchReportTaskStatuesResponse{

@@ -274,7 +274,7 @@ func (m *MapTaskMaster) reportJobInstanceProgress() {
 		}
 
 		// Send to server by master
-		logger.Infof("MapTaskMaster reportJobInstanceProgress, progress=%s", progress)
+		logger.Infof("MapTaskMaster reportJobInstanceProgress, req=%+v", req)
 		actorcomm.TaskMasterMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
 			Msg: req,
 		}
@@ -300,11 +300,11 @@ func (m *MapTaskMaster) checkWorkerAlive() {
 				for times < 3 {
 					conn, err := net.Dial("tcp", workerAddr)
 					if err == nil {
-						logger.Infof("socket to %s is reachable, times=%d", workerAddr, times)
+						logger.Debugf("socket to %s is reachable, times=%d", workerAddr, times)
 						conn.Close()
 						break
 					} else {
-						logger.Infof("socket to %s is not reachable, times=%d", workerAddr, times)
+						logger.Warnf("socket to %s is not reachable, times=%d", workerAddr, times)
 						time.Sleep(5 * time.Second)
 						times++
 					}
@@ -559,6 +559,7 @@ func (m *MapTaskMaster) batchHandleContainers(workerIdAddr string, reqs []*sched
 			JobId:         proto.Int64(m.GetJobInstanceInfo().GetJobId()),
 			StartReqs:     reqs,
 		}
+
 		future := m.actorCtx.RequestFuture(containerRouterActorPid, req, 15*time.Second)
 		result, err := future.Result()
 		if err == nil {
@@ -573,28 +574,17 @@ func (m *MapTaskMaster) batchHandleContainers(workerIdAddr string, reqs []*sched
 
 				// TODO 发送失败应该尝试另一个worker还是直接置为失败？可能要根据返回值进行处理
 				// Currently it is set to fail directly
-				for _, req := range reqs {
-					if val, ok := m.taskProgressMap.Load(req.GetTaskName()); ok {
-						val.(*common.TaskProgressCounter).IncrementOneFailed()
-					}
-					if val, ok := m.workerProgressMap.Load(workerAddr); ok {
-						val.(*common.WorkerProgressCounter).IncrementOneFailed()
-					}
-					failedStatusRequest := &schedulerx.ContainerReportTaskStatusRequest{
-						JobId:         proto.Int64(m.GetJobInstanceInfo().GetJobId()),
-						JobInstanceId: proto.Int64(m.GetJobInstanceInfo().GetJobInstanceId()),
-						TaskId:        proto.Int64(req.GetTaskId()),
-						Status:        proto.Int32(int32(taskstatus.TaskStatusFailed)),
-						WorkerId:      proto.String(workerId),
-						TaskName:      proto.String(req.GetTaskName()),
-						WorkerAddr:    proto.String(workerAddr),
-					}
-					m.UpdateTaskStatus(failedStatusRequest)
-				}
+				m.batchUpdateTaskStatus(workerId, workerAddr, reqs)
 			}
 		} else {
 			// Trigger timeout or failure callback
 			if errors.Is(err, actor.ErrTimeout) {
+				if len(m.GetJobInstanceInfo().GetAllWorkers()) == 1 {
+					logger.Errorf("jobInstanceId:%d, batch dispatch tasks failed due to only existed worker[%s] was down, size:%d, error=%s",
+						m.GetJobInstanceInfo().GetJobInstanceId(), workerIdAddr, len(reqs), err.Error())
+					m.batchUpdateTaskStatus(workerId, workerAddr, reqs)
+					return
+				}
 				logger.Warnf("jobInstanceId=%d, worker[%s] is down, try another worker, size:%d",
 					m.GetJobInstanceInfo().GetJobInstanceId(), workerIdAddr, len(reqs))
 
@@ -618,26 +608,30 @@ func (m *MapTaskMaster) batchHandleContainers(workerIdAddr string, reqs []*sched
 			} else {
 				// If there are other exceptions (such as serialization failure, worker cannot be found), directly set the task to failure.
 				logger.Errorf("jobInstanceId:%d, batch dispatch Tasks error, worker=%s, size:%d, error=%s", m.GetJobInstanceInfo().GetJobInstanceId(), workerIdAddr, len(reqs), err.Error())
-				for _, req := range reqs {
-					if val, ok := m.taskProgressMap.Load(req.GetTaskName()); ok {
-						val.(*common.TaskProgressCounter).IncrementOneFailed()
-					}
-					if val, ok := m.workerProgressMap.Load(workerAddr); ok {
-						val.(*common.WorkerProgressCounter).IncrementOneFailed()
-					}
-					failedStatusRequest := &schedulerx.ContainerReportTaskStatusRequest{
-						JobId:         proto.Int64(m.GetJobInstanceInfo().GetJobId()),
-						JobInstanceId: proto.Int64(m.GetJobInstanceInfo().GetJobInstanceId()),
-						TaskId:        proto.Int64(req.GetTaskId()),
-						Status:        proto.Int32(int32(taskstatus.TaskStatusFailed)),
-						WorkerId:      proto.String(workerId),
-						TaskName:      proto.String(req.GetTaskName()),
-						WorkerAddr:    proto.String(workerAddr),
-					}
-					m.UpdateTaskStatus(failedStatusRequest)
-				}
+				m.batchUpdateTaskStatus(workerId, workerAddr, reqs)
 			}
 		}
+	}
+}
+
+func (m *MapTaskMaster) batchUpdateTaskStatus(workerId, workerAddr string, reqs []*schedulerx.MasterStartContainerRequest) {
+	for _, req := range reqs {
+		if val, ok := m.taskProgressMap.Load(req.GetTaskName()); ok {
+			val.(*common.TaskProgressCounter).IncrementOneFailed()
+		}
+		if val, ok := m.workerProgressMap.Load(workerAddr); ok {
+			val.(*common.WorkerProgressCounter).IncrementOneFailed()
+		}
+		failedStatusRequest := &schedulerx.ContainerReportTaskStatusRequest{
+			JobId:         proto.Int64(m.GetJobInstanceInfo().GetJobId()),
+			JobInstanceId: proto.Int64(m.GetJobInstanceInfo().GetJobInstanceId()),
+			TaskId:        proto.Int64(req.GetTaskId()),
+			Status:        proto.Int32(int32(taskstatus.TaskStatusFailed)),
+			WorkerId:      proto.String(workerId),
+			TaskName:      proto.String(req.GetTaskName()),
+			WorkerAddr:    proto.String(workerAddr),
+		}
+		m.UpdateTaskStatus(failedStatusRequest)
 	}
 }
 

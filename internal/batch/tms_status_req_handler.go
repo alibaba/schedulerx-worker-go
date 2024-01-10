@@ -47,7 +47,7 @@ func (rcvr *TMStatusReqHandler) Process(jobInstanceId int64, reqs []interface{},
 		if mapTaskMaster, ok := taskMaster.(taskmaster.MapTaskMaster); ok {
 			startTime := time.Now()
 			mapTaskMaster.BatchUpdateTaskStatues(statusReqs)
-			logger.Infof("jobInstanceId=%d, batch update status cost:%dms, size:%d", jobInstanceId, time.Since(startTime).Milliseconds(), len(statusReqs))
+			logger.Debugf("MapTaskMaster BatchUpdateTaskStatues succeed, jobInstanceId=%d, cost:%dms, size:%d", jobInstanceId, time.Since(startTime).Milliseconds(), len(statusReqs))
 		} else {
 			logger.Warnf("TaskMaster get from taskMasterPool is empty, jobInstanceId:%d", jobInstanceId)
 		}

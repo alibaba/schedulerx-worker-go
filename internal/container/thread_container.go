@@ -71,7 +71,7 @@ func (c *ThreadContainer) Start() {
 	c.containerPool.SetContext(c.jobCtx)
 
 	startTime := time.Now().UnixMilli()
-	logger.Infof("start run container, uniqueId=%v, cost=%vms, jobContext=%+v", uniqueId, startTime-c.jobCtx.ScheduleTime().Milliseconds(), c.jobCtx)
+	logger.Debugf("start run container, uniqueId=%v, cost=%vms, jobContext=%+v", uniqueId, startTime-c.jobCtx.ScheduleTime().Milliseconds(), c.jobCtx)
 
 	defer func() {
 		// clean containerPool
@@ -105,7 +105,6 @@ func (c *ThreadContainer) Start() {
 	}
 
 	result, err = task.Process(c.jobCtx)
-	logger.Infof("container run finished, uniqueId=%v, cost=%vms", uniqueId, time.Now().UnixMilli()-startTime)
 	if err != nil {
 		fixedErrMsg := err.Error()
 		if errMsg := err.Error(); len(errMsg) > constants.InstanceResultSizeMax {
@@ -118,7 +117,7 @@ func (c *ThreadContainer) Start() {
 	}
 
 	endTime := time.Now().UnixMilli()
-	logger.Infof("container run finished, uniqueId=%v, cost=%dms", uniqueId, endTime-startTime)
+	logger.Debugf("container run finished, uniqueId=%v, cost=%dms", uniqueId, endTime-startTime)
 
 	if result == nil {
 		result = processor.NewProcessResult(processor.WithFailed(), processor.WithResult("result can't be null"))
@@ -184,7 +183,7 @@ func (c *ThreadContainer) reportTaskStatus(result *processor.ProcessResult, work
 	} else {
 		submitResult = batch.GetContainerStatusReqHandlerPool().SubmitReq(c.jobCtx.JobInstanceId(), req)
 	}
-	logger.Infof("reportTaskStatus instanceId=%v submitResult=%v, processResult=%v", utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId()), submitResult, result)
+	logger.Debugf("reportTaskStatus instanceId=%v submitResult=%v, processResult=%v", utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId()), submitResult, result)
 	if !submitResult {
 		c.actorCtx.Request(c.masterPid, req)
 	}

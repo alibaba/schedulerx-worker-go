@@ -53,7 +53,7 @@ type containerActor struct {
 
 func newContainerActor() *containerActor {
 	gopool, _ := ants.NewPool(
-		8,
+		12,
 		ants.WithExpiryDuration(time.Second),
 		ants.WithPanicHandler(func(i interface{}) {
 			if r := recover(); r != nil {
@@ -261,7 +261,7 @@ func (a *containerActor) killInstance(jobId, jobInstanceId int64) {
 
 func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.MasterStartContainerRequest) (string, error) {
 	uniqueId := utils.GetUniqueId(req.GetJobId(), req.GetJobInstanceId(), req.GetTaskId())
-	logger.Infof("startContainer, uniqueId=%v, req=%+v, cost=%vms", uniqueId, req, time.Now().UnixMilli()-req.GetScheduleTime())
+	logger.Debugf("startContainer, uniqueId=%v, req=%+v, cost=%vms", uniqueId, req, time.Now().UnixMilli()-req.GetScheduleTime())
 
 	jobCtx, err := convertMasterStartContainerRequest2JobContext(req)
 	if err != nil {

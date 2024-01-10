@@ -136,3 +136,22 @@ func GetUserDiskSpacePercent() (float64, error) {
 func IsRootTask(taskName string) bool {
 	return taskName == constants.MapTaskRootName
 }
+
+// PrintCallStack 打印最近的 5 层调用栈，用于排查问题
+func PrintCallStack() {
+	const size = 5
+	var pc [size]uintptr           // 存储调用栈中每层的程序计数器值
+	n := runtime.Callers(2, pc[:]) // 跳过runtime.Callers和PrintStack本身
+	if n == 0 {
+		return // 调用栈信息为空，直接返回
+	}
+
+	frames := runtime.CallersFrames(pc[:n])
+	for i := 0; i < size; i++ {
+		frame, more := frames.Next()
+		fmt.Printf("%s\n\t%s:%d\n", frame.Function, frame.File, frame.Line)
+		if !more {
+			break
+		}
+	}
+}
