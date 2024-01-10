@@ -73,6 +73,12 @@ func (p *jobInstanceProcessor) SendUserMessage(pid *actor.PID, message interface
 				wrappedMsg.SenderPath,
 				fmt.Sprintf("akka.tcp://%s@%s/user/job_instance_routing/%s", utils.GetWorkerId(), conn.LocalAddr().String(), utils.GenPathTpl()),
 				"com.alibaba.schedulerx.protocol.Server$ServerKillJobInstanceResponse")
+		case *schedulerx.MasterKillContainerResponse:
+			akkaMsg, err = codec.EncodeAkkaMessage(
+				msg,
+				wrappedMsg.SenderPath,
+				fmt.Sprintf("akka.tcp://%s@%s/user/job_instance_routing/%s", utils.GetWorkerId(), conn.LocalAddr().String(), utils.GenPathTpl()),
+				"com.alibaba.schedulerx.protocol.Server$MasterKillContainerResponse")
 		case *schedulerx.ServerKillTaskResponse:
 			akkaMsg, err = codec.EncodeAkkaMessage(
 				msg,

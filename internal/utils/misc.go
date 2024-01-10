@@ -137,13 +137,14 @@ func IsRootTask(taskName string) bool {
 	return taskName == constants.MapTaskRootName
 }
 
-// PrintCallStack 打印最近的 5 层调用栈，用于排查问题
+// PrintCallStack print the latest 5-level call stack for troubleshooting
 func PrintCallStack() {
 	const size = 5
-	var pc [size]uintptr           // 存储调用栈中每层的程序计数器值
-	n := runtime.Callers(2, pc[:]) // 跳过runtime.Callers和PrintStack本身
+	var pc [size]uintptr           // Stores the program counter value for each level in the call stack
+	n := runtime.Callers(2, pc[:]) // Skip runtime.Callers and PrintStack itself
 	if n == 0 {
-		return // 调用栈信息为空，直接返回
+		// The call stack information is empty and returns directly
+		return
 	}
 
 	frames := runtime.CallersFrames(pc[:n])

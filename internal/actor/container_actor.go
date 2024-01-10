@@ -53,8 +53,7 @@ type containerActor struct {
 
 func newContainerActor() *containerActor {
 	gopool, _ := ants.NewPool(
-		12,
-		ants.WithExpiryDuration(time.Second),
+		ants.DefaultAntsPoolSize,
 		ants.WithPanicHandler(func(i interface{}) {
 			if r := recover(); r != nil {
 				logger.Errorf("Panic happened in containerStarter, %v\n%s", r, debug.Stack())
