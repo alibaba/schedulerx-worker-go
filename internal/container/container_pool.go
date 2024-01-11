@@ -86,7 +86,7 @@ func (b *BaseContainerPool) SetContext(jobContext *jobcontext.JobContext) {
 	panic("implement me")
 }
 
-func (b *BaseContainerPool) Submit(jobId int64, jobInstanceId int64, taskId int64, container Container, consumerSize int32) {
+func (b *BaseContainerPool) Submit(jobId int64, jobInstanceId int64, taskId int64, container Container, consumerSize int32) error {
 	//TODO implement me
 	panic("implement me")
 }

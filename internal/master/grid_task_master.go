@@ -46,9 +46,9 @@ func NewGridTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.C
 	}
 	gridTaskMaster.taskPersistence = persistence.GetH2MemoryPersistence()
 	gridTaskMaster.taskPersistence.InitTable()
-	gridTaskMaster.taskStatusReqQueue = batch.NewReqQueue(100000)
+	gridTaskMaster.taskStatusReqQueue = batch.NewReqQueue(150 * 10000)
 	gridTaskMaster.taskStatusReqBatchHandler = batch.NewTMStatusReqHandler(jobInstanceId, 1, 1, 3000, gridTaskMaster.taskStatusReqQueue)
-	gridTaskMaster.taskBlockingQueue = batch.NewReqQueue(100000)
+	gridTaskMaster.taskBlockingQueue = batch.NewReqQueue(150 * 10000)
 	if jobInstanceInfo.GetXattrs() != "" {
 		gridTaskMaster.xAttrs = new(common.MapTaskXAttrs)
 		if err := json.Unmarshal([]byte(jobInstanceInfo.GetXattrs()), gridTaskMaster.xAttrs); err != nil {

@@ -88,7 +88,6 @@ func (rcvr *H2Persistence) CheckInstanceStatus(jobInstanceId int64) processor.In
 	if existed {
 		instanceStatus = processor.InstanceStatusRunning
 	}
-
 	return instanceStatus
 }
 
@@ -130,7 +129,7 @@ func (rcvr *H2Persistence) CreateTasks(containers []*schedulerx.MasterStartConta
 			time.Sleep(1000 * time.Millisecond)
 			continue
 		}
-		logger.Infof("batch insert tasks succeed, affectCnt=%d", affectCnt)
+		logger.Debugf("batch insert tasks succeed, affectCnt=%d", affectCnt)
 		succeed = true
 		break
 	}
@@ -237,6 +236,7 @@ func (rcvr *H2Persistence) UpdateTaskStatus(jobInstanceId int64, taskIds []int64
 	affectCnt, err = rcvr.taskDao.UpdateStatus2(jobInstanceId, taskIds, int(status), workerId, workerAddr)
 	if err != nil {
 		logger.Errorf("JobInstanceId=%d, updateTaskStatus failed, err=%s", jobInstanceId, err.Error())
+		return 0, err
 	}
 	return affectCnt, nil
 }

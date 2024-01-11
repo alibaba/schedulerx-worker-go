@@ -68,20 +68,32 @@ func newTreadContainerPool() *ThreadContainerPool {
 	}
 }
 
-func (p *ThreadContainerPool) Submit(jobId, jobInstanceId, taskId int64, container Container, consumerSize int32) {
+func (p *ThreadContainerPool) Submit(jobId, jobInstanceId, taskId int64, container Container, consumerSize int32) error {
 	if !p.enableShareContainerPool {
-		gopool, _ := ants.NewPool(int(consumerSize),
-			ants.WithExpiryDuration(30*time.Second),
-			ants.WithPanicHandler(func(i interface{}) {
-				if r := recover(); r != nil {
-					logger.Errorf("Catch panic with PanicHandler in ThreadContainerPool, %v\n%s", r, debug.Stack())
-				}
-			}))
-		pool, _ := p.threadPoolMap.LoadOrStore(jobInstanceId, gopool)
+		var (
+			pool interface{}
+			ok   bool
+			err  error
+		)
+		pool, ok = p.threadPoolMap.Load(jobInstanceId)
+		if !ok {
+			pool, err = ants.NewPool(int(consumerSize),
+				ants.WithExpiryDuration(30*time.Second),
+				ants.WithPanicHandler(func(i interface{}) {
+					if r := recover(); r != nil {
+						logger.Errorf("Catch panic with PanicHandler in ThreadContainerPool, %v\n%s", r, debug.Stack())
+					}
+				}))
+			if err != nil {
+				return err
+			}
+			p.threadPoolMap.Store(jobInstanceId, pool)
+		}
 		pool.(*ants.Pool).Submit(container.Start)
 	} else {
 		p.sharedThreadPool.Submit(container.Start)
 	}
+	return nil
 }
 
 func (p *ThreadContainerPool) DestroyByInstance(jobInstanceId int64) bool {

@@ -39,5 +39,5 @@ type ContainerPool interface {
 	Remove(uniqueId string)
 	RemoveContext()
 	SetContext(jobContext *jobcontext.JobContext)
-	Submit(jobId int64, jobInstanceId int64, taskId int64, container Container, consumerSize int32)
+	Submit(jobId int64, jobInstanceId int64, taskId int64, container Container, consumerSize int32) error
 }

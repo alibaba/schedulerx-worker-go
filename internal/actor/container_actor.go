@@ -280,7 +280,8 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 			statusReqBatchHandlerKey = req.GetJobInstanceId()
 		}
 		if !a.statusReqBatchHandlerPool.Contains(statusReqBatchHandlerKey) {
-			reqQueue := batch.NewReqQueue(100000)
+			// support 1.5 million requests
+			reqQueue := batch.NewReqQueue(150 * 10000)
 			a.statusReqBatchHandlerPool.Start(
 				statusReqBatchHandlerKey,
 				batch.NewContainerStatusReqHandler(statusReqBatchHandlerKey, 1, 1, a.batchSize, reqQueue, req.GetInstanceMasterAkkaPath()))
@@ -289,7 +290,9 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 		if req.GetConsumerNum() > 0 {
 			consumerNum = req.GetConsumerNum()
 		}
-		a.containerPool.Submit(req.GetJobId(), req.GetJobInstanceId(), req.GetTaskId(), container, consumerNum)
+		if err = a.containerPool.Submit(req.GetJobId(), req.GetJobInstanceId(), req.GetTaskId(), container, consumerNum); err != nil {
+			return "", err
+		}
 	} else {
 		logger.Warnf("Container is null, uniqueId=%d", uniqueId)
 	}

@@ -18,6 +18,8 @@ package batch
 
 import (
 	"sync"
+	
+	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
 type ReqQueue struct {
@@ -53,6 +55,7 @@ func (q *ReqQueue) RetrieveRequests(batchSize int32) []interface{} {
 func (q *ReqQueue) push(req interface{}) {
 	if req != nil {
 		if q.capacity > 0 && int64(q.Size()) == q.capacity {
+			logger.Warnf("req queue is full, capacity: %d", q.capacity)
 			return
 		}
 		q.lock.Lock()
