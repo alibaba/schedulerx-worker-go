@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
+	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
 var _ context.Context = &JobContext{}
@@ -33,16 +34,14 @@ type JobContext struct {
 	jobInstanceId           int64
 	wfInstanceId            int64
 	taskId                  int64
-	appGroupId              string
-	traceId                 string
 	jobName                 string
-	scheduleTime            time.Time
-	dataTime                time.Time
+	scheduleTime            time.Duration
+	dataTime                time.Duration
 	executeMode             string
 	jobType                 string
 	instanceMasterActorPath string
 	taskName                string
-	task                    interface{}
+	task                    []byte
 	groupId                 string
 	content                 string
 	user                    string
@@ -65,7 +64,7 @@ type JobContext struct {
 	taskResults map[int64]string
 
 	// status of all child tasks, map[int64]TaskStatus
-	taskStatuses map[int64]common.TaskStatus
+	taskStatuses map[int64]taskstatus.TaskStatus
 
 	// task maximum retry count
 	taskMaxAttempt int32
@@ -89,22 +88,6 @@ type JobContext struct {
 
 	timeType       int32
 	timeExpression string
-}
-
-func (j *JobContext) AppGroupId() string {
-	return j.appGroupId
-}
-
-func (j *JobContext) SetAppGroupId(appGroupId string) {
-	j.appGroupId = appGroupId
-}
-
-func (j *JobContext) TraceId() string {
-	return j.traceId
-}
-
-func (j *JobContext) SetTraceId(traceId string) {
-	j.traceId = traceId
 }
 
 func (j *JobContext) UpstreamData() []*common.JobInstanceData {
@@ -155,19 +138,19 @@ func (j *JobContext) SetJobName(jobName string) {
 	j.jobName = jobName
 }
 
-func (j *JobContext) ScheduleTime() time.Time {
+func (j *JobContext) ScheduleTime() time.Duration {
 	return j.scheduleTime
 }
 
-func (j *JobContext) SetScheduleTime(scheduleTime time.Time) {
+func (j *JobContext) SetScheduleTime(scheduleTime time.Duration) {
 	j.scheduleTime = scheduleTime
 }
 
-func (j *JobContext) DataTime() time.Time {
+func (j *JobContext) DataTime() time.Duration {
 	return j.dataTime
 }
 
-func (j *JobContext) SetDataTime(dataTime time.Time) {
+func (j *JobContext) SetDataTime(dataTime time.Duration) {
 	j.dataTime = dataTime
 }
 
@@ -203,11 +186,11 @@ func (j *JobContext) SetTaskName(taskName string) {
 	j.taskName = taskName
 }
 
-func (j *JobContext) Task() interface{} {
+func (j *JobContext) Task() []byte {
 	return j.task
 }
 
-func (j *JobContext) SetTask(task interface{}) {
+func (j *JobContext) SetTask(task []byte) {
 	j.task = task
 }
 
@@ -275,11 +258,11 @@ func (j *JobContext) SetTaskResults(taskResults map[int64]string) {
 	j.taskResults = taskResults
 }
 
-func (j *JobContext) TaskStatuses() map[int64]common.TaskStatus {
+func (j *JobContext) TaskStatuses() map[int64]taskstatus.TaskStatus {
 	return j.taskStatuses
 }
 
-func (j *JobContext) SetTaskStatuses(taskStatuses map[int64]common.TaskStatus) {
+func (j *JobContext) SetTaskStatuses(taskStatuses map[int64]taskstatus.TaskStatus) {
 	j.taskStatuses = taskStatuses
 }
 

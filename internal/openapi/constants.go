@@ -54,16 +54,4 @@ const (
 	ADMIN_USERS             = "app.admin.users"
 	ENV                     = "app.env"
 	ENV_NETWORK             = "app.env.network"
-
-	// env stage
-	envStagePre  = "pre"
-	envStageProd = "prod"
-
-	// server domain addr
-	serverDomainDaily = "schedulerx2.taobao.net"
-	serverDomainPre   = "pre.schedulerx2.alibaba-inc.com"
-	serverDomainProd  = "center.schedulerx2.alibaba-inc.com"
-
-	// env key
-	envKeyStage = "SIGMA_APP_STAGE"
 )

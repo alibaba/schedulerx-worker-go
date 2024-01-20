@@ -27,7 +27,7 @@ import (
 // getFormatIpv4Addr obtain a formatted IPv4 address,
 // such as the address of 127.0.0.1, which is formatted as a string of 127000000001.
 func getFormatIpv4Addr() (string, error) {
-	ipv4Addr, err := getIpv4AddrHost()
+	ipv4Addr, err := GetIpv4AddrHost()
 	if err != nil {
 		return "", err
 	}
@@ -40,7 +40,7 @@ func getFormatIpv4Addr() (string, error) {
 	return result, nil
 }
 
-func getIpv4AddrHost() (string, error) {
+func GetIpv4AddrHost() (string, error) {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return "", err

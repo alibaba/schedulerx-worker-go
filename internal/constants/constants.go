@@ -19,6 +19,17 @@ package constants
 import "time"
 
 const (
+	// default worker config
+	BroadcastDispatchRetryTimesDefault  = 1
+	TaskBodySizeMaxDefault              = 65536
+	MapMasterPageSizeDefault            = 100
+	MapMasterQueueSizeDefault           = 10000
+	MapMasterDispatcherSizeDefault      = 5
+	SharedPoolSizeDefault               = 64
+	ParallelTaskListSizeMaxDefault      = 300
+	WorkerMapPageSizeDefault            = 1000
+	MapMasterStatusCheckIntervalDefault = 3 * time.Second
+
 	// Transport
 	TransportHeaderSize = 4
 
@@ -29,41 +40,20 @@ const (
 	DefaultXAttrsDispatcherSize     = 5
 	DefaultXAttrsGlobalConsumerSize = 1000
 
-	InstanceResultSizeMax = 1000
+	// max size
+	MapMasterDispatcherSizeMax      = 200
+	InstanceResultSizeMax           = 1000
+	UserSpacePercentMax             = 0.9
+	ParallelTaskListSizeMaxAdvanced = 1000
+	PullModeTaskSizeMax             = 10000
 
-	PullModeTaskSizeMax = 10000
-
-	SecondDelayStandaloneDispatch        = "second_delay.standalone.dispatch"
+	ConsumerNumDefault                   = 64
 	SecondDelayStandaloneDispatchDefault = false
-
-	MapMasterPageSize       = "map.master.page.size"
-	MapMasterQueueSize      = "map.master.queue.size"
-	MapMasterDispatcherSize = "map.master.dispatcher.size"
-
-	MapMasterPageSizeDefault       = 100
-	MapMasterQueueSizeDefault      = 10000
-	MapMasterDispatcherSizeDefault = 5
-	MapMasterDispatcherSizeMax     = 200
-	TaskBodySizeMaxDefault         = 65536
-
-	UserSpacePercentMax = 0.9
-
-	MapMasterStatusCheckInterval        = "map.master.status.check.interval"
-	MapMasterStatusCheckIntervalDefault = 3 * time.Second
 
 	MapTaskRootName = "MAP_TASK_ROOT"
 	ReduceTaskName  = "REDUCE_TASK"
 
-	SharedPoolSizeDefault = 64
-
-	ConsumerNumDefault = 64
-
-	ParallelTaskListSizeMaxAdvanced = 1000
-	ParallelTaskListSizeMax         = 300
-
 	TimeFormat = "2006-01-02 15:04:05"
-
-	WorkerMapPageSizeDefault = 1000
 )
 
 type AppVersion int32

@@ -22,12 +22,12 @@ import (
 
 var discoveryMap sync.Map
 
-func GetDiscovery(groupID string) *ServiceDiscover {
-	val, ok := discoveryMap.Load(groupID)
+func GetDiscovery(groupId string) *ServiceDiscover {
+	val, ok := discoveryMap.Load(groupId)
 	if ok {
 		return val.(*ServiceDiscover)
 	}
 	serviceDiscover := NewServiceDiscovery()
-	discoveryMap.Store(groupID, serviceDiscover)
+	discoveryMap.Store(groupId, serviceDiscover)
 	return serviceDiscover
 }

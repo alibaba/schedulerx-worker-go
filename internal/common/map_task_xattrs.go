@@ -20,23 +20,23 @@ import "github.com/alibaba/schedulerx-worker-go/internal/constants"
 
 type MapTaskXAttrs struct {
 	// ConsumerSize is the maximum number of threads triggered for execution on a single machine during a single run, default value is 5
-	ConsumerSize int32 `json:"consumer_size"`
+	ConsumerSize int32 `json:"consumerSize"`
 	// DispatcherSize is the number of threads used for distributing child tasks，default value is 5
-	DispatcherSize int32 `json:"dispatcher_size"`
-	// TaskMaxAttempt is the number of retries for a failed child task
-	TaskMaxAttempt int32 `json:"task_max_attempt"`
-	// TaskAttemptInterval is the interval between retries for a failed child task
-	TaskAttemptInterval int32 `json:"task_attempt_interval"`
+	DispatcherSize int32 `json:"dispatcherSize"`
+	// TaskMaxAttempt is the number of retries for a Failed child task
+	TaskMaxAttempt int32 `json:"taskMaxAttempt"`
+	// TaskAttemptInterval is the interval between retries for a Failed child task
+	TaskAttemptInterval int32 `json:"taskAttemptInterval"`
 	// Child task distribution mode (push/pull）
-	TaskDispatchMode string `json:"task_dispatch_mode"`
+	TaskDispatchMode string `json:"taskDispatchMode"`
 
 	//==== Exclusive to pull model ======
-	// PageSize is the number of child tasks pulled per single machine per request，default value is 5
-	PageSize int32 `json:"page_size"`
+	// PageSize is the number of child tasks Pulled per single machine per request，default value is 5
+	PageSize int32 `json:"pageSize"`
 	// QueueSize is the cache size for the child task queue on a single machine，default value is 10
-	QueueSize int32 `json:"queue_size"`
+	QueueSize int32 `json:"queueSize"`
 	// GlobalConsumerSize is the global concurrent consumption of child tasks
-	GlobalConsumerSize int32 `json:"global_consumer_size"`
+	GlobalConsumerSize int32 `json:"globalConsumerSize"`
 }
 
 func NewMapTaskXAttrs() *MapTaskXAttrs {

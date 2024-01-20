@@ -33,7 +33,7 @@ func (h *HelloWorld) Process(ctx *jobcontext.JobContext) (*processor.ProcessResu
 	// mock execute task
 	time.Sleep(3 * time.Second)
 	ret := new(processor.ProcessResult)
-	ret.SetStatus(processor.InstanceStatusSucceed)
+	ret.SetSucceed()
 	fmt.Println("[Process] End process my task: Hello world!")
 	return ret, nil
 }

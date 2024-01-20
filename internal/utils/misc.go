@@ -20,18 +20,22 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"net/url"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	atom "go.uber.org/atomic"
+	"github.com/shirou/gopsutil/disk"
+
+	"github.com/alibaba/schedulerx-worker-go/internal/constants"
 )
 
 var (
-	seed              = atom.NewInt32(1000)
+	seed              = 1000
 	uid        uint64 = 0
-	deliveryId        = atom.NewInt64(0)
+	deliveryId int64  = 0
 )
 
 const (
@@ -69,13 +73,15 @@ func ShuffleStringSlice(nums []string) []string {
 }
 
 func GenPathTpl() string {
-	if seed.Load() == math.MaxInt32 {
-		seed.Store(0)
+	if seed == math.MaxInt32 {
+		seed = 0
 	}
-	return base64Func(seed.Inc(), pathTplPrefix)
+
+	seed++
+	return base64Func(seed, pathTplPrefix)
 }
 
-func base64Func(l int32, sb string) string {
+func base64Func(l int, sb string) string {
 	sb += string(base64Chars[l&63])
 	next := l >> 6
 	if next == 0 {
@@ -88,25 +94,65 @@ func GetHandshakeUid() uint64 {
 	if uid != 0 {
 		return uid
 	}
-	min := -2147483648
-	max := 2147483647
 	rand.Seed(time.Now().UnixNano())
-	uid = uint64(rand.Intn(max-min+1) + min)
+	uid = rand.Uint64()
 	return uid
 }
 
 func GetDeliveryId() int64 {
-	return deliveryId.Inc()
+	return atomic.AddInt64(&deliveryId, 1)
 }
 
-func IsValidDomain(domain string) bool {
-	_, err := url.ParseRequestURI(domain)
+func RemoveSliceElem(s []string, elem string) []string {
+	result := []string{}
+	for _, value := range s {
+		if value != elem {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func Int64SliceToStringSlice(intSlice []int64) []string {
+	strSlice := make([]string, len(intSlice))
+	for i, v := range intSlice {
+		strSlice[i] = strconv.FormatInt(v, 10)
+	}
+	return strSlice
+}
+
+func GetUserDiskSpacePercent() (float64, error) {
+	path := "/"
+	if runtime.GOOS == "windows" {
+		path = "C:"
+	}
+	info, err := disk.Usage(path)
 	if err != nil {
-		return false
+		return 0, err
 	}
-	url, err := url.Parse(domain)
-	if err != nil || url.Scheme == "" || url.Host == "" {
-		return false
+	return info.UsedPercent, nil
+}
+
+func IsRootTask(taskName string) bool {
+	return taskName == constants.MapTaskRootName
+}
+
+// PrintCallStack print the latest 5-level call stack for troubleshooting
+func PrintCallStack() {
+	const size = 5
+	var pc [size]uintptr           // Stores the program counter value for each level in the call stack
+	n := runtime.Callers(2, pc[:]) // Skip runtime.Callers and PrintStack itself
+	if n == 0 {
+		// The call stack information is empty and returns directly
+		return
 	}
-	return true
+
+	frames := runtime.CallersFrames(pc[:n])
+	for i := 0; i < size; i++ {
+		frame, more := frames.Next()
+		fmt.Printf("%s\n\t%s:%d\n", frame.Function, frame.File, frame.Line)
+		if !more {
+			break
+		}
+	}
 }
