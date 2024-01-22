@@ -872,7 +872,7 @@ func (m *MapTaskMaster) CheckProcessor() {
 }
 
 func (m *MapTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
-	var reduceResult *processor.ProcessResult
+	reduceResult := processor.NewProcessResult(processor.WithSucceed())
 	jobCtx := new(jobcontext.JobContext)
 	jobCtx.SetJobId(m.GetJobInstanceInfo().GetJobId())
 	jobCtx.SetJobInstanceId(jobInstanceId)
@@ -915,14 +915,14 @@ func (m *MapTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult
 		workerProgressCounter.(*common.WorkerProgressCounter).IncrementTotal()
 		workerProgressCounter.(*common.WorkerProgressCounter).IncrementRunning()
 
-		reduceResult, err := mpProcessor.Reduce(jobCtx)
+		result, err := mpProcessor.Reduce(jobCtx)
 		if err != nil {
-			reduceResult = processor.NewProcessResult()
-			reduceResult.SetFailed()
-			reduceResult.SetResult("reduce exception: " + err.Error())
+			result = processor.NewProcessResult()
+			result.SetFailed()
+			result.SetResult("reduce exception: " + err.Error())
 		}
 
-		if reduceResult.Status() == processor.InstanceStatusSucceed {
+		if result.Status() == processor.InstanceStatusSucceed {
 			if val, ok := m.taskProgressMap.Load(reduceTaskName); ok {
 				val.(*common.TaskProgressCounter).IncrementOneSuccess()
 			}
@@ -937,6 +937,7 @@ func (m *MapTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult
 				val.(*common.WorkerProgressCounter).IncrementOneFailed()
 			}
 		}
+		return result
 	}
 	return reduceResult
 }
