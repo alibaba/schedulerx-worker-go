@@ -67,7 +67,7 @@ func NewTaskMaster(actorCtx actor.Context, jobInstanceInfo *common.JobInstanceIn
 		inited:              true,
 		instanceStatus:      processor.InstanceStatusRunning,
 		taskStatusMap:       sync.Map{},
-		taskIdGenerator:     atomic.NewInt64(0),
+		taskIdGenerator:     atomic.NewInt64(-1),
 		aliveCheckWorkerSet: utils.NewConcurrentSet(),
 		jobInstanceInfo:     jobInstanceInfo,
 		actorContext:        actorCtx,
