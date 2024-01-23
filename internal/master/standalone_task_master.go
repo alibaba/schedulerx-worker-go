@@ -18,37 +18,41 @@ package master
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"runtime/debug"
+	"strings"
 	"time"
 
-	"github.com/tidwall/gjson"
+	"github.com/asynkron/protoactor-go/actor"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/alibaba/schedulerx-worker-go/config"
+	"github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
 	"github.com/alibaba/schedulerx-worker-go/internal/masterpool"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
-	"github.com/alibaba/schedulerx-worker-go/internal/remoting/trans"
+	"github.com/alibaba/schedulerx-worker-go/internal/remoting/pool"
 	"github.com/alibaba/schedulerx-worker-go/internal/tasks"
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 	"github.com/alibaba/schedulerx-worker-go/processor"
-	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
-	"github.com/alibaba/schedulerx-worker-go/tracer"
+	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
 var _ taskmaster.TaskMaster = &StandaloneTaskMaster{}
 
 type StandaloneTaskMaster struct {
 	*TaskMaster
+	currentSelection      string // workerName
+	actorCtx              actor.Context
+	tasks                 *tasks.TaskMap
+	connpool              pool.ConnPool
 	taskMasterPoolCleaner func(int64)
 }
 
-func NewStandaloneTaskMaster(jobInstanceInfo *common.JobInstanceInfo) *StandaloneTaskMaster {
+func NewStandaloneTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) taskmaster.TaskMaster {
 	var (
-		taskMaster            = NewTaskMaster(jobInstanceInfo)
+		connpool              = pool.GetConnPool()
 		taskMasterPool        = masterpool.GetTaskMasterPool()
 		taskMasterPoolCleaner = func(jobInstanceId int64) {
 			if taskMaster := taskMasterPool.Get(jobInstanceId); taskMaster != nil {
@@ -57,147 +61,98 @@ func NewStandaloneTaskMaster(jobInstanceInfo *common.JobInstanceInfo) *Standalon
 			}
 		}
 	)
-	return &StandaloneTaskMaster{
-		TaskMaster:            taskMaster,
+
+	standaloneTaskMaster := &StandaloneTaskMaster{
+		actorCtx:              actorCtx,
 		taskMasterPoolCleaner: taskMasterPoolCleaner,
+		tasks:                 taskMasterPool.Tasks(),
+		connpool:              connpool,
+		currentSelection:      actorCtx.Self().Address,
 	}
+
+	statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, standaloneTaskMaster, jobInstanceInfo)
+	if utils.IsSecondTypeJob(common.TimeType(jobInstanceInfo.GetTimeType())) {
+		statusHandler = NewSecondJobUpdateInstanceStatusHandler(actorCtx, standaloneTaskMaster, jobInstanceInfo)
+	}
+	standaloneTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, statusHandler)
+
+	return standaloneTaskMaster
 }
 
 func (m *StandaloneTaskMaster) SubmitInstance(ctx context.Context, jobInstanceInfo *common.JobInstanceInfo) error {
-	taskId := m.AcquireTaskId()
-	uniqueId := utils.GetUniqueId(jobInstanceInfo.GetJobId(), jobInstanceInfo.GetJobInstanceId(), taskId)
+	var (
+		err      error
+		uniqueId string
+		taskId   int64
 
-	req, err := m.convert2StartContainerRequest(jobInstanceInfo, taskId, "", nil, false)
-	if err != nil {
-		logger.Errorf("SubmitInstance failed, jobInstanceInfo=%+v, err=%s.", jobInstanceInfo, err.Error())
-		m.taskStatusMap.Store(uniqueId, common.TaskStatusFailed)
-		return err
-	}
-
-	go m.handleTask(ctx, req)
-
-	return nil
-}
-
-func (m *StandaloneTaskMaster) handleTask(ctx context.Context, req *schedulerx.MasterStartContainerRequest) {
+		workerId   = utils.GetWorkerId()
+		workerAddr = m.GetCurrentSelection()
+	)
 	defer func() {
-		// clean taskMasterPool
-		m.taskMasterPoolCleaner(*req.JobInstanceId)
-
-		if e := recover(); e != nil {
-			logger.Infof("Process task panic, error=%v, stack=%s", e, debug.Stack())
+		if err != nil {
+			logger.Errorf("Standalone taskMaster submitInstance failed, workerAddr=%s, uniqueId=%s, err=%s", workerAddr, uniqueId, err.Error())
+			m.taskStatusMap.Store(uniqueId, taskstatus.TaskStatusFailed)
+			failedReq := &schedulerx.ContainerReportTaskStatusRequest{
+				JobId:         proto.Int64(jobInstanceInfo.GetJobId()),
+				JobInstanceId: proto.Int64(jobInstanceInfo.GetJobInstanceId()),
+				TaskId:        proto.Int64(taskId),
+				Status:        proto.Int32(int32(taskstatus.TaskStatusFailed)),
+				WorkerId:      proto.String(workerId),
+				WorkerAddr:    proto.String(workerAddr),
+				SerialNum:     proto.Int64(m.serialNum.Load()),
+			}
+			m.UpdateTaskStatus(failedReq)
 		}
 	}()
 
-	jobCtx := convert2JobContext(req)
-	jobName := gjson.Get(jobCtx.Content(), "jobName").String()
-	// Compatible with the existing Java language configuration mechanism
-	if jobCtx.JobType() == "java" {
-		jobName = gjson.Get(jobCtx.Content(), "className").String()
-	}
-	task, ok := tasks.GetTaskMap().Find(jobName)
-	if !ok {
-		retMsg := fmt.Sprintf("jobName=%s not found, maybe forgot to register it by the client", jobName)
-		if err := trans.SendReportTaskStatusReq(ctx, m.convert2ReportTaskStatusRequest(jobCtx, processor.InstanceStatusFailed, retMsg, "1.0", "")); err != nil {
-			logger.Errorf("Report task status=%v failed, jobCtx=%+v, err=%s ", common.TaskStatusFailed, jobCtx, err.Error())
-			return
-		}
-		logger.Errorf("Process task=%s failed, because it's unregistered. ", req.GetTaskName())
-		return
-	}
-
-	if err := trans.SendReportTaskStatusReq(ctx, m.convert2ReportTaskStatusRequest(jobCtx, processor.InstanceStatusRunning, "", "0.5", "")); err != nil {
-		logger.Errorf("Report task status=%v failed, jobCtx=%+v, err=%s ", common.TaskStatusRunning, jobCtx, err.Error())
-		return
-	}
-
-	if t := tracer.GetTracer(); t != nil {
-		jobCtx = t.Start(jobCtx)
-	}
-
-	ret, err := task.Process(jobCtx)
-
-	if t := tracer.GetTracer(); t != nil {
-		ret = t.End(jobCtx, ret)
-	}
+	taskId = m.AcquireTaskId()
+	uniqueId = utils.GetUniqueId(jobInstanceInfo.GetJobId(), jobInstanceInfo.GetJobInstanceId(), taskId)
+	req, err := m.convert2StartContainerRequest(jobInstanceInfo, taskId, "", nil, false)
 	if err != nil {
-		if err := trans.SendReportTaskStatusReq(ctx, m.convert2ReportTaskStatusRequest(jobCtx, processor.InstanceStatusFailed, ret.Result(), "1.0", "")); err != nil {
-			logger.Errorf("Report task status=%v failed, jobCtx=%+v, err=%s ", common.TaskStatusFailed, jobCtx, err.Error())
-			return
-		}
-		logger.Errorf("Process task=%s failed, err=%s ", req.GetTaskName(), err.Error())
-		return
+		logger.Errorf("SubmitInstance failed, jobInstanceInfo=%+v, err=%s.", jobInstanceInfo, err.Error())
+		m.taskStatusMap.Store(uniqueId, taskstatus.TaskStatusFailed)
+		return err
 	}
 
-	if err := trans.SendReportTaskStatusReq(ctx, m.convert2ReportTaskStatusRequest(jobCtx, ret.Status(), ret.Result(), "1.0", "")); err != nil {
-		logger.Errorf("Report task status=%v failed, jobCtx=%+v, err=%s ", common.TaskStatusSucceed, jobCtx, err.Error())
-		return
+	// If task execution distribution is turned on for second-level tasks, the execution machine will be selected in polling.
+	if config.GetWorkerConfig().IsDispatchSecondDelayStandalone() && common.TimeType(jobInstanceInfo.GetTimeType()) == common.TimeTypeSecondDelay {
+		workerIdAddr := m.selectWorker()
+		workerInfo := strings.Split(workerIdAddr, "@")
+		workerId = workerInfo[0]
+		workerAddr = actorcomm.GetRealWorkerAddr(workerIdAddr)
+		m.currentSelection = workerAddr
 	}
-	logger.Infof("Process task=%s succeed, ret=%+v", jobName, ret.String())
+
+	response, e := m.actorContext.RequestFuture(actorcomm.GetContainerRouterPid(m.currentSelection), req, 10*time.Second).Result()
+	if e != nil {
+		err = fmt.Errorf("request to containerPid failed, err=%s", e.Error())
+		return err
+	}
+	resp, ok := response.(*schedulerx.MasterStartContainerResponse)
+	if !ok {
+		m.taskStatusMap.Store(uniqueId, taskstatus.TaskStatusFailed)
+		err = fmt.Errorf("response is not MasterStartContainerResponse, resp=%+v", response)
+		return err
+	}
+	if resp.GetSuccess() {
+		m.taskStatusMap.Store(uniqueId, taskstatus.TaskStatusInit)
+		logger.Infof("Standalone taskMaster init worker succeed, workerAddr=%s, uniqueId=%s", workerAddr, uniqueId)
+		return nil
+	}
+
+	err = fmt.Errorf("start container request failed: %s", resp.GetMessage())
+	return err
 }
 
-func convert2JobContext(req *schedulerx.MasterStartContainerRequest) *jobcontext.JobContext {
-	jobCtx := new(jobcontext.JobContext)
-	jobCtx.SetJobId(req.GetJobId())
-	jobCtx.SetJobInstanceId(req.GetJobInstanceId())
-	jobCtx.SetTaskId(req.GetTaskId())
-	jobCtx.SetScheduleTime(time.UnixMilli(req.GetScheduleTime()))
-	jobCtx.SetDataTime(time.UnixMilli(req.GetDataTime()))
-	jobCtx.SetExecuteMode(req.GetExecuteMode())
-	jobCtx.SetJobType(req.GetJobType())
-	jobCtx.SetContent(req.GetContent())
-	jobCtx.SetJobParameters(req.GetParameters())
-	jobCtx.SetInstanceParameters(req.GetInstanceParameters())
-	jobCtx.SetUser(req.GetUser())
-	jobCtx.SetInstanceMasterActorPath(req.GetInstanceMasterAkkaPath())
-	jobCtx.SetGroupId(req.GetGroupId())
-	jobCtx.SetMaxAttempt(req.GetMaxAttempt())
-	jobCtx.SetAttempt(req.GetAttempt())
-	jobCtx.SetTaskName(req.GetTaskName())
-	if req.GetTask() == nil {
-		jobCtx.SetShardingId(req.GetTaskId())
-	}
-	jobCtx.SetTaskMaxAttempt(req.GetTaskMaxAttempt())
-	jobCtx.SetTaskAttemptInterval(req.GetTaskAttemptInterval())
-
-	var upstreamData []*common.JobInstanceData
-	for _, data := range req.GetUpstreamData() {
-		jobInstanceData := new(common.JobInstanceData)
-		jobInstanceData.SetJobName(data.GetJobName())
-		jobInstanceData.SetData(data.GetData())
-		upstreamData = append(upstreamData, jobInstanceData)
-	}
-	jobCtx.SetUpstreamData(upstreamData)
-	jobCtx.SetWfInstanceId(req.GetWfInstanceId())
-	jobCtx.SetSerialNum(req.GetSerialNum())
-	jobCtx.SetJobName(req.GetJobName())
-	jobCtx.SetShardingNum(req.GetShardingNum())
-	jobCtx.SetTimeType(req.GetTimeType())
-	jobCtx.SetTimeExpression(req.GetTimeExpression())
-	return jobCtx
-}
-
-func (m *StandaloneTaskMaster) convert2ReportTaskStatusRequest(jobCtx *jobcontext.JobContext, taskStatus processor.InstanceStatus, taskResult, progress, traceId string) *schedulerx.WorkerReportJobInstanceStatusRequest {
-	return &schedulerx.WorkerReportJobInstanceStatusRequest{
-		JobId:         proto.Int64(jobCtx.JobId()),
-		JobInstanceId: proto.Int64(jobCtx.JobInstanceId()),
-		Status:        proto.Int32(int32(taskStatus)),
-		Result:        proto.String(taskResult),
-		Progress:      proto.String(progress),
-		TraceId:       proto.String(traceId),
-		DeliveryId:    proto.Int64(utils.GetDeliveryId()),
-		GroupId:       proto.String(jobCtx.GroupId()),
-	}
-}
-
+// Poll to get the executable machine
 func (m *StandaloneTaskMaster) selectWorker() string {
-	workers := m.jobInstanceInfo.GetAllWorkers()
+	workers := m.GetJobInstanceInfo().GetAllWorkers()
 	workersCnt := len(workers)
 	idx := 0
 
 	if workersCnt == 0 {
 		return ""
-	} else if serialNum := m.serialNum.Load(); serialNum > int64(workersCnt) {
+	} else if serialNum := m.GetSerialNum(); serialNum > int64(workersCnt) {
 		idx = int(serialNum % int64(workersCnt))
 	}
 
@@ -205,69 +160,53 @@ func (m *StandaloneTaskMaster) selectWorker() string {
 }
 
 func (m *StandaloneTaskMaster) KillInstance(reason string) error {
-	// Do nothing
+	uniqueId := utils.GetUniqueIdWithoutTaskId(m.jobInstanceInfo.GetJobId(), m.jobInstanceInfo.GetJobInstanceId())
+	req := &schedulerx.MasterKillContainerRequest{
+		JobId:                 proto.Int64(m.jobInstanceInfo.GetJobId()),
+		JobInstanceId:         proto.Int64(m.jobInstanceInfo.GetJobInstanceId()),
+		MayInterruptIfRunning: proto.Bool(false),
+	}
+
+	response, err := m.actorContext.RequestFuture(actorcomm.GetContainerRouterPid(m.currentSelection), req, 10*time.Second).Result()
+	if err != nil {
+		return fmt.Errorf("send kill instance request exception, workerAddr=%v, uninqueId=%v, err=%s", m.currentSelection, uniqueId, err.Error())
+	}
+	resp, ok := response.(*schedulerx.MasterKillContainerResponse)
+	if !ok {
+		return fmt.Errorf("response is not MasterKillContainerResponse, resp=%+v", response)
+	}
+	if resp.GetSuccess() {
+		logger.Infof("Standalone taskMaster kill instance succeed, workerAddr=%s, uniqueId=%s", m.currentSelection, uniqueId)
+		return nil
+	}
+
+	if err = m.updateNewInstanceStatus(m.GetSerialNum(), m.jobInstanceInfo.GetJobInstanceId(), processor.InstanceStatusFailed, reason); err != nil {
+		return fmt.Errorf("UpdateNewInstanceStatus failed, err=%s", err.Error())
+	}
+	if !m.instanceStatus.IsFinished() {
+		m.lock.Lock()
+		m.instanceStatus = processor.InstanceStatusFailed
+		m.lock.Unlock()
+	}
 	return nil
 }
 
-func (m *StandaloneTaskMaster) convert2StartContainerRequest(jobInstanceInfo *common.JobInstanceInfo, taskId int64, taskName string, taskBody []byte, failover bool) (*schedulerx.MasterStartContainerRequest, error) {
-	req := &schedulerx.MasterStartContainerRequest{
-		JobId:              proto.Int64(jobInstanceInfo.GetJobId()),
-		JobInstanceId:      proto.Int64(jobInstanceInfo.GetJobInstanceId()),
-		TaskId:             proto.Int64(taskId),
-		User:               proto.String(jobInstanceInfo.GetUser()),
-		JobType:            proto.String(jobInstanceInfo.GetJobType()),
-		Content:            proto.String(jobInstanceInfo.GetContent()),
-		ScheduleTime:       proto.Int64(jobInstanceInfo.GetScheduleTime().Milliseconds()),
-		DataTime:           proto.Int64(jobInstanceInfo.GetDataTime().Milliseconds()),
-		Parameters:         proto.String(jobInstanceInfo.GetParameters()),
-		InstanceParameters: proto.String(jobInstanceInfo.GetInstanceParameters()),
-		GroupId:            proto.String(jobInstanceInfo.GetGroupId()),
-		MaxAttempt:         proto.Int32(jobInstanceInfo.GetMaxAttempt()),
-		Attempt:            proto.Int32(jobInstanceInfo.GetAttempt()),
+func (m *StandaloneTaskMaster) DestroyContainerPool() {
+	req := &schedulerx.MasterDestroyContainerPoolRequest{
+		JobInstanceId: proto.Int64(m.jobInstanceInfo.GetJobInstanceId()),
+		SerialNum:     proto.Int64(m.GetSerialNum()),
 	}
 
-	if upstreamDatas := jobInstanceInfo.GetUpstreamData(); len(upstreamDatas) > 0 {
-		req.UpstreamData = []*schedulerx.UpstreamData{}
+	if err := m.actorContext.RequestFuture(actorcomm.GetContainerRouterPid(m.currentSelection), req, 5*time.Second).Wait(); err != nil {
+		logger.Errorf("Destroy containerPool failed, err: %s", err.Error())
+	}
+}
 
-		for _, jobInstanceData := range upstreamDatas {
-			req.UpstreamData = append(req.UpstreamData, &schedulerx.UpstreamData{
-				JobName: proto.String(jobInstanceData.GetJobName()),
-				Data:    proto.String(jobInstanceData.GetData()),
-			})
-		}
-	}
+func (m *StandaloneTaskMaster) CheckProcessor() error {
+	// TODO Implement me
+	return nil
+}
 
-	if xattrs := jobInstanceInfo.GetXattrs(); len(xattrs) > 0 {
-		mapTaskXAttrs := common.NewMapTaskXAttrs()
-		if err := json.Unmarshal([]byte(xattrs), mapTaskXAttrs); err != nil {
-			return nil, fmt.Errorf("Json unmarshal to mapTaskXAttrs failed, xattrs=%s, err=%s ", xattrs, err.Error())
-		}
-		req.ConsumerNum = proto.Int32(mapTaskXAttrs.GetConsumerSize())
-		req.MaxAttempt = proto.Int32(mapTaskXAttrs.GetTaskMaxAttempt())
-		req.TaskAttemptInterval = proto.Int32(mapTaskXAttrs.GetTaskAttemptInterval())
-	}
-
-	if taskName != "" {
-		req.TaskName = proto.String(taskName)
-	}
-	if len(taskBody) > 0 {
-		req.Task = taskBody
-	}
-	if failover {
-		req.Failover = proto.Bool(true)
-	}
-	if jobInstanceInfo.GetWfInstanceId() >= 0 {
-		req.WfInstanceId = proto.Int64(jobInstanceInfo.GetWfInstanceId())
-	}
-
-	req.SerialNum = proto.Int64(m.GetSerialNum())
-	req.ExecuteMode = proto.String(jobInstanceInfo.GetExecuteMode())
-
-	if len(jobInstanceInfo.GetJobName()) > 0 {
-		req.JobName = proto.String(jobInstanceInfo.GetJobName())
-	}
-	req.TimeType = proto.Int32(jobInstanceInfo.GetTimeType())
-	req.TimeExpression = proto.String(jobInstanceInfo.GetTimeExpression())
-
-	return req, nil
+func (m *StandaloneTaskMaster) GetCurrentSelection() string {
+	return m.currentSelection
 }

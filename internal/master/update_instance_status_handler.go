@@ -44,5 +44,6 @@ func NewBaseUpdateInstanceStatusHandler(jobInstanceInfo *common.JobInstanceInfo,
 }
 
 func (h *baseUpdateInstanceStatusHandler) Handle(serialNum int64, newStatus processor.InstanceStatus, result string) error {
+	// TODO
 	return nil
 }

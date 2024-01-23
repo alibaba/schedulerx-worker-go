@@ -19,8 +19,6 @@ package utils
 import (
 	"sync"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestSyncMapLen(t *testing.T) {
@@ -46,7 +44,7 @@ func TestSyncMapLen(t *testing.T) {
 }
 
 func TestBase64Func(t *testing.T) {
-	testData := map[int32]string{
+	testData := map[int]string{
 		0:      "$a",
 		10:     "$k",
 		102:    "$Mb",
@@ -65,72 +63,10 @@ func TestBase64Func(t *testing.T) {
 	}
 }
 
-func TestGetDeliveryId(t *testing.T) {
-	a1 := GetDeliveryId()
-	a2 := GetDeliveryId()
-	a3 := GetDeliveryId()
-	ass := assert.New(t)
-	ass.Equal(a1, int64(1))
-	ass.Equal(a2, int64(2))
-	ass.Equal(a3, int64(3))
-}
-
-func TestIsValidDomain(t *testing.T) {
-	// Test case 1: Correct domain name
-	{
-		domain := "http://www.example.com"
-		expected := true
-
-		result := IsValidDomain(domain)
-
-		if result != expected {
-			t.Errorf("TestIsValidDomain_Case1 failed, expected: %v, got: %v", expected, result)
-		}
-	}
-
-	// Test Case 2: Wrong Domain Name - Missing Scheme
-	{
-		domain := "www.example.com"
-		expected := false
-
-		result := IsValidDomain(domain)
-
-		if result != expected {
-			t.Errorf("TestIsValidDomain_Case2 failed, expected: %v, got: %v", expected, result)
-		}
-	}
-
-	// Test Case 3: Wrong Domain Name - Missing Host
-	{
-		domain := "http://"
-		expected := false
-
-		result := IsValidDomain(domain)
-
-		if result != expected {
-			t.Errorf("TestIsValidDomain_Case3 failed, expected: %v, got: %v", expected, result)
-		}
-	}
-
-	// Test case 4: Wrong domain name - illegal URL
-	{
-		domain := "http://www.example.com/%%%"
-		expected := false
-
-		result := IsValidDomain(domain)
-
-		if result != expected {
-			t.Errorf("TestIsValidDomain_Case4 failed, expected: %v, got: %v", expected, result)
-		}
-	}
-
-	// Test case 5: Wrong domain name - empty string
-	domain := ""
-	expected := false
-
-	result := IsValidDomain(domain)
-
-	if result != expected {
-		t.Errorf("TestIsValidDomain_Case5 failed, expected: %v, got: %v", expected, result)
+func TestInt64SliceToStringSlice(t *testing.T) {
+	data := []int64{1, 2, 3}
+	result := Int64SliceToStringSlice(data)
+	if len(result) != 3 || result[0] != "1" || result[1] != "2" || result[2] != "3" {
+		t.Errorf("Int64SliceToStringSlice failed，Expect=[1,2,3], actual=%v", result)
 	}
 }

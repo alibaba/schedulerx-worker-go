@@ -24,11 +24,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/asynkron/protoactor-go/actor"
+
 	"github.com/alibaba/schedulerx-worker-go/config"
+	sxactor "github.com/alibaba/schedulerx-worker-go/internal/actor"
+	"github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/discovery"
+	"github.com/alibaba/schedulerx-worker-go/internal/masterpool"
 	"github.com/alibaba/schedulerx-worker-go/internal/openapi"
 	"github.com/alibaba/schedulerx-worker-go/internal/remoting"
-	"github.com/alibaba/schedulerx-worker-go/internal/remoting/connpool"
+	"github.com/alibaba/schedulerx-worker-go/internal/remoting/pool"
 	"github.com/alibaba/schedulerx-worker-go/internal/tasks"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 	"github.com/alibaba/schedulerx-worker-go/processor"
@@ -42,8 +47,12 @@ var (
 )
 
 type Client struct {
-	cfg  *Config
-	opts *Options
+	cfg            *Config
+	opts           *Options
+	connpool       pool.ConnPool
+	tasks          *tasks.TaskMap
+	actorSystem    *actor.ActorSystem
+	taskMasterPool *masterpool.TaskMasterPool
 }
 
 type Config struct {
@@ -52,7 +61,8 @@ type Config struct {
 	Namespace  string `json:"Namespace"`
 	// GroupId may be exited multiple, separated by comma, such as "group1,group2"
 	GroupId string `json:"GroupId"`
-	// AppKey may be exited multiple, separated by comma, such as "appKey1,appKey2", appKey and groupId are in one-to-one correspondence
+	// AppKey may be exited multiple, separated by comma, such as "appKey1,appKey2",
+	// appKey and groupId are in one-to-one correspondence
 	AppKey string `json:"AppKey"`
 }
 
@@ -121,29 +131,42 @@ func newClient(cfg *Config, opts ...Option) (*Client, error) {
 
 	// Init connection pool
 	dialer := func() (net.Conn, error) {
-		logger.Infof("Schedulerx discovery active server addr=%s", getActiveServer())
+		logger.Infof("SchedulerX discovery active server addr=%s", getActiveServer())
 		return net.DialTimeout("tcp", getActiveServer(), time.Millisecond*500)
 	}
-	singleConnPool := connpool.NewSingleConnPool(ctx, dialer,
-		connpool.WithPostDialer(remoting.Handshake),
-		connpool.WithAddrChangedSignalCh(serverDiscover.ResultChangedCh()))
-	connpool.InitConnPool(singleConnPool)
+	singleConnPool := pool.NewSingleConnPool(ctx, dialer,
+		pool.WithPostDialer(remoting.Handshake),
+		pool.WithAddrChangedSignalCh(serverDiscover.ResultChangedCh()))
+	pool.InitConnPool(singleConnPool)
 	if conn, err := singleConnPool.Get(ctx); err != nil {
 		return nil, fmt.Errorf("cannot connect schedulerx server, maybe network was broken, err=%s", err.Error())
 	} else {
-		logger.Infof("Schedulerx server connected, remoteAddr=%s, localAddr=%s", conn.RemoteAddr(), conn.LocalAddr().String())
+		logger.Infof("SchedulerX server connected, remoteAddr=%s, localAddr=%s", conn.RemoteAddr(), conn.LocalAddr().String())
+	}
+
+	tasks := tasks.GetTaskMap()
+	masterpool.InitTaskMasterPool(masterpool.NewTaskMasterPool(tasks))
+
+	// Init actors
+	actorSystem := actor.NewActorSystem()
+	actorcomm.InitActorSystem(actorSystem)
+	if err := sxactor.InitActors(actorSystem); err != nil {
+		return nil, fmt.Errorf("Init actors faild, err=%s. ", err.Error())
 	}
 
 	// Keep heartbeat, and receive message
-	go remoting.KeepHeartbeat(ctx)
+	// KeepHeartbeat must after init actors, so that can get actorSystemPort from actorSystem
+	go remoting.KeepHeartbeat(ctx, actorSystem)
 	go remoting.OnMsgReceived(ctx)
 
 	return &Client{
-		cfg:  cfg,
-		opts: options,
+		cfg:         cfg,
+		opts:        options,
+		tasks:       tasks,
+		actorSystem: actorSystem,
 	}, nil
 }
 
 func (c *Client) RegisterTask(name string, task processor.Processor) {
-	tasks.GetTaskMap().Register(name, task)
+	c.tasks.Register(name, task)
 }

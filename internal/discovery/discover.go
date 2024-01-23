@@ -61,12 +61,12 @@ func (s *ServiceDiscover) refreshActiveServer(groupId, appKey string) {
 		return
 	}
 	if len(activeServerAddr) > 0 && activeServerAddr != s.activeServer.String() {
-		logger.Warnf("[ServerDiscovery]: active server change from [%s] to [%s], groupId=%s, namespace=%s, namespaceSource=%s",
+		logger.Infof("[ServerDiscovery]: active server change from [%s] to [%s], groupId=%s, namespace=%s, namespaceSource=%s",
 			s.activeServer.String(), activeServerAddr, groupId, s.client.Namespace(), s.client.NamespaceSource())
 		s.activeServer.Store(activeServerAddr)
 		s.changedCh <- struct{}{}
 	}
-	logger.Debugf("active server: %s", s.activeServer.String())
+	logger.Debugf("active server: %s", s.activeServer)
 }
 
 func (s *ServiceDiscover) Start(groupId, appKey string) {
@@ -81,16 +81,16 @@ func (s *ServiceDiscover) Start(groupId, appKey string) {
 }
 
 func (s *ServiceDiscover) queryActiveServer(groupId, appKey string) (string, error) {
-	url := fmt.Sprintf("http://%s%s?groupId=%s&appKey=%s", s.client.Domain(), ActiveServerQueryURI, groupId, url.QueryEscape(appKey))
+	urlStr := fmt.Sprintf("http://%s%s?groupId=%s&appKey=%s", s.client.Domain(), ActiveServerQueryURI, groupId, url.QueryEscape(appKey))
 	if len(s.client.Namespace()) > 0 {
-		url += "&namespace=" + s.client.Namespace()
+		urlStr += "&namespace=" + s.client.Namespace()
 	}
 	if len(s.client.NamespaceSource()) > 0 {
-		url += "&namespaceSource=" + s.client.NamespaceSource()
+		urlStr += "&namespaceSource=" + s.client.NamespaceSource()
 	}
-	url += "&enableScale=true"
+	urlStr += "&enableScale=true"
 
-	resp, err := s.client.HttpClient().Get(url)
+	resp, err := s.client.HttpClient().Get(urlStr)
 	if err != nil {
 		return "", fmt.Errorf("http.Get error %w", err)
 	}
@@ -111,10 +111,10 @@ func (s *ServiceDiscover) queryActiveServer(groupId, appKey string) (string, err
 	}
 	err = json.Unmarshal(body, &respData)
 	if err != nil {
-		return "", fmt.Errorf("unmarshal resp body[%s] fail %w, url=%s", string(body), err, url)
+		return "", fmt.Errorf("unmarshal resp body[%s] fail %w, url=%s", string(body), err, urlStr)
 	}
 	if !respData.Success {
-		return "", fmt.Errorf("result is not success requestId:%s message:%s, url=%s", respData.RequestId, respData.Message, url)
+		return "", fmt.Errorf("result is not success requestId:%s message:%s, url=%s", respData.RequestId, respData.Message, urlStr)
 	}
 
 	if respData.Code != GroupHasChild {
@@ -128,7 +128,7 @@ func (s *ServiceDiscover) queryActiveServer(groupId, appKey string) (string, err
 	}
 	err = json.Unmarshal([]byte(respData.Data.(string)), &groupResult)
 	if err != nil {
-		return "", fmt.Errorf("unmarshal group result[%s] fail %w, url=%s", respData.Data, err, url)
+		return "", fmt.Errorf("unmarshal group result[%s] fail %w", respData.Data, err)
 	}
 
 	for childGroupId, childAppKey := range groupResult.GroupIdMap {

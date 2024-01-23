@@ -35,13 +35,15 @@ func WithStatus(status InstanceStatus) Option {
 	}
 }
 
-func WithIsSucceed(isSucceed bool) Option {
+func WithSucceed() Option {
 	return func(pr *ProcessResult) {
-		if isSucceed {
-			pr.status = InstanceStatusSucceed
-		} else {
-			pr.status = InstanceStatusFailed
-		}
+		pr.status = InstanceStatusSucceed
+	}
+}
+
+func WithFailed() Option {
+	return func(pr *ProcessResult) {
+		pr.status = InstanceStatusFailed
 	}
 }
 
@@ -59,6 +61,14 @@ func (pr *ProcessResult) Status() InstanceStatus {
 
 func (pr *ProcessResult) SetStatus(status InstanceStatus) {
 	pr.status = status
+}
+
+func (pr *ProcessResult) SetSucceed() {
+	pr.status = InstanceStatusSucceed
+}
+
+func (pr *ProcessResult) SetFailed() {
+	pr.status = InstanceStatusFailed
 }
 
 func (pr *ProcessResult) Result() string {

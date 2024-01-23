@@ -35,7 +35,7 @@ func GetWorkerId() string {
 	once.Do(func() {
 		formatIpv4Addr, err := getFormatIpv4Addr()
 		if err != nil {
-			logger.Warnf("Generate workerId failed due to get format ipv4 addr failed, err=%s", err.Error())
+			logger.Warnf("Generate workerId failed due to get format ipv4 addr failed, err=%s" + err.Error())
 			return
 		}
 		pid := strconv.Itoa(os.Getpid())

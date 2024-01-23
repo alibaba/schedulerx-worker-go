@@ -20,19 +20,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"runtime"
+	"syscall"
 	"time"
 
+	"github.com/asynkron/protoactor-go/actor"
 	"github.com/shirou/gopsutil/load"
-	"golang.org/x/sys/unix"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/alibaba/schedulerx-worker-go/internal/discovery"
 	"github.com/alibaba/schedulerx-worker-go/internal/masterpool"
+	"github.com/alibaba/schedulerx-worker-go/internal/proto/akka"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
-	"github.com/alibaba/schedulerx-worker-go/internal/remoting/connpool"
+	"github.com/alibaba/schedulerx-worker-go/internal/remoting/codec"
+	"github.com/alibaba/schedulerx-worker-go/internal/remoting/pool"
 	"github.com/alibaba/schedulerx-worker-go/internal/remoting/trans"
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 	"github.com/alibaba/schedulerx-worker-go/internal/version"
@@ -44,36 +48,67 @@ var (
 	waitHeartbeatRespTimeout = 5 * time.Second
 )
 
-func KeepHeartbeat(ctx context.Context) {
+func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem) {
 	var (
 		taskMasterPool = masterpool.GetTaskMasterPool()
-		connpool       = connpool.GetConnPool()
+		connpool       = pool.GetConnPool()
 		groupManager   = discovery.GetGroupManager()
 	)
-	ticker := time.NewTicker(heartbeatInterval)
-	defer ticker.Stop()
 
 	heartbeat := func() {
+		_, actorSystemPort, err := actorSystem.GetHostPort()
+		if err != nil {
+			logger.Errorf("Write heartbeat to remote failed due to get actorSystem port failed, err=%s", err.Error())
+			return
+		}
 		for groupId, appGroupId := range groupManager.GroupId2AppGroupIdMap() {
-			appKey := groupManager.GetAppKeyByGroupId(groupId)
 			jobInstanceIds := taskMasterPool.GetInstanceIds(int64(appGroupId))
-			heartbeatReq := genHeartBeatRequest(groupId, appKey, int64(appGroupId), jobInstanceIds)
-			err := trans.SendHeartbeatReq(ctx, heartbeatReq)
-			if err != nil {
-				if errors.Is(err, unix.EPIPE) || errors.Is(err, os.ErrDeadlineExceeded) {
+			heartbeatReq := genHeartBeatRequest(groupId, int64(appGroupId), jobInstanceIds, actorSystemPort)
+			if err := sendHeartbeat(ctx, heartbeatReq); err != nil {
+				if errors.Is(err, syscall.EPIPE) || errors.Is(err, os.ErrDeadlineExceeded) {
 					connpool.ReconnectTrigger() <- struct{}{}
 				}
-				logger.Errorf("Write heartbeat to remote failed, err=%s", err.Error())
+				logger.Warnf("Write heartbeat to server failed, had already re-connect with server, reason=%s", err.Error())
 				continue
 			}
-			logger.Debugf("Write heartbeat=[%+v] to remote succeed", heartbeatReq)
+			logger.Debugf("Write heartbeat to remote succeed.")
 		}
 	}
-
 	heartbeat()
+
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
 	for range ticker.C {
 		heartbeat()
 	}
+}
+
+func sendHeartbeat(ctx context.Context, req *schedulerx.WorkerHeartBeatRequest) error {
+	conn, err := pool.GetConnPool().Get(ctx)
+	if err != nil {
+		return err
+	}
+
+	akkaMsg, err := codec.EncodeAkkaMessage(
+		req,
+		fmt.Sprintf("akka.tcp://server@%s/", conn.RemoteAddr().String()),
+		fmt.Sprintf("akka.tcp://%s@%s/temp/%s", utils.GetWorkerId(), conn.LocalAddr().String(), utils.GenPathTpl()),
+		"com.alibaba.schedulerx.protocol.Worker$WorkerHeartBeatRequest",
+		codec.WithMessageContainerSerializer(),
+		codec.WithSelectionEnvelopePattern([]*akka.Selection{
+			{
+				Type:    akka.PatternType_CHILD_NAME.Enum(),
+				Matcher: proto.String("user"),
+			},
+			{
+				Type:    akka.PatternType_CHILD_NAME.Enum(),
+				Matcher: proto.String("heartbeat"),
+			},
+		}))
+	if err != nil {
+		return err
+	}
+	return trans.WriteAkkaMsg(akkaMsg, conn)
 }
 
 func getLoadAvg() ([]float64, error) {
@@ -111,7 +146,7 @@ func metricsJsonStr() string {
 	return string(ret)
 }
 
-func genHeartBeatRequest(groupId, appKey string, appGroupId int64, jobInstanceIds []int64) *schedulerx.WorkerHeartBeatRequest {
+func genHeartBeatRequest(groupId string, appGroupId int64, jobInstanceIds []int64, actorSystemPort int) *schedulerx.WorkerHeartBeatRequest {
 	return &schedulerx.WorkerHeartBeatRequest{
 		GroupId:       proto.String(groupId),
 		WorkerId:      proto.String(utils.GetWorkerId()),
@@ -121,6 +156,6 @@ func genHeartBeatRequest(groupId, appKey string, appGroupId int64, jobInstanceId
 		Starter:       proto.String("go"),
 		AppGroupId:    proto.Int64(appGroupId),
 		Source:        proto.String("unknown"),
-		AppKey:        proto.String(appKey),
+		RpcPort:       proto.Int32(int32(actorSystemPort)),
 	}
 }

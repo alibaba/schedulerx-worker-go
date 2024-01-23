@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/asynkron/protoactor-go/actor"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
@@ -33,11 +34,13 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 	"github.com/alibaba/schedulerx-worker-go/processor"
+	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
 var _ taskmaster.TaskMaster = &TaskMaster{}
 
 type TaskMaster struct {
+	actorContext             actor.Context               `json:"actorContext,omitempty"`
 	instanceStatus           processor.InstanceStatus    `json:"instanceStatus,omitempty"` // WARNING: not concurrency-safe
 	taskStatusMap            sync.Map                    `json:"taskStatusMap"`            // key:string, val:TaskStatus
 	taskIdGenerator          *atomic.Int64               `json:"taskIdGenerator"`          // WARNING: not concurrency-safe
@@ -52,23 +55,27 @@ type TaskMaster struct {
 	inited                   bool                        `json:"inited,omitempty"`              // WARNING: not concurrency-safe
 	aliveCheckWorkerSet      *utils.ConcurrentSet        `json:"aliveCheckWorkerSet,omitempty"` // string
 	serverDiscovery          discovery.ServiceDiscover   `json:"serverDiscovery"`
-	serialNum                *atomic.Int64               `json:"serialNum"`                    // Current loop count for second-level tasks
-	existInvalidWorker       bool                        `json:"existInvalidWorker,omitempty"` // WARNING: not concurrency-safe
+	serialNum                *atomic.Int64               `json:"serialNum,omitempty"`          // 秒级任务使用，当前循环次数
+	existInvalidWorker       bool                        `json:"existInvalidWorker,omitempty"` // 是否存在失效Worker WARNING: not concurrency-safe
 
 	lock sync.RWMutex
 }
 
-func NewTaskMaster(jobInstanceInfo *common.JobInstanceInfo) *TaskMaster {
+func NewTaskMaster(actorCtx actor.Context, jobInstanceInfo *common.JobInstanceInfo, statusHandler UpdateInstanceStatusHandler) *TaskMaster {
+	workerIdAddr := fmt.Sprintf("%s@%s", utils.GetWorkerId(), actorCtx.ActorSystem().Address())
 	taskMaster := &TaskMaster{
 		inited:              true,
 		instanceStatus:      processor.InstanceStatusRunning,
 		taskStatusMap:       sync.Map{},
-		taskIdGenerator:     atomic.NewInt64(0),
+		taskIdGenerator:     atomic.NewInt64(-1),
 		aliveCheckWorkerSet: utils.NewConcurrentSet(),
 		jobInstanceInfo:     jobInstanceInfo,
+		actorContext:        actorCtx,
+		localWorkIdAddr:     workerIdAddr,
+		localTaskRouterPath: workerIdAddr,
 		serialNum:           atomic.NewInt64(0),
+		statusHandler:       statusHandler,
 	}
-
 	return taskMaster
 }
 
@@ -78,6 +85,10 @@ func (m *TaskMaster) Init() {
 	if !m.inited {
 		m.inited = true
 	}
+}
+
+func (m *TaskMaster) GetActorContext() actor.Context {
+	return m.actorContext
 }
 
 func (m *TaskMaster) GetLocalWorkerIdAddr() string {
@@ -99,7 +110,7 @@ func (m *TaskMaster) GetLocalTaskRouterPath() string {
 func (m *TaskMaster) IsJobInstanceFinished() bool {
 	isFinished := true
 	m.taskStatusMap.Range(func(key, value interface{}) bool {
-		status := value.(common.TaskStatus)
+		status := value.(taskstatus.TaskStatus)
 		if !status.IsFinished() {
 			isFinished = false
 			return false
@@ -115,7 +126,7 @@ func (m *TaskMaster) UpdateTaskStatus(req *schedulerx.ContainerReportTaskStatusR
 		jobInstanceId = req.GetJobInstanceId()
 		taskId        = req.GetTaskId()
 	)
-	taskStatus, ok := common.Convert2TaskStatus(req.GetStatus())
+	taskStatus, ok := taskstatus.Convert2TaskStatus(req.GetStatus())
 	if !ok {
 		return fmt.Errorf("Invalid taskstatus: %d get from ContainerReportTaskStatusRequest: %+v ", req.GetStatus(), req)
 	}
@@ -128,10 +139,10 @@ func (m *TaskMaster) UpdateTaskStatus(req *schedulerx.ContainerReportTaskStatusR
 			newStatus = processor.InstanceStatusRunning
 		} else {
 			newStatus = processor.InstanceStatusSucceed
-			// return Failed if any child task fails
+			// 只要有一个子任务状态为 Failed，则返回 Failed
 			if newStatus != processor.InstanceStatusFailed {
 				m.taskStatusMap.Range(func(key, val interface{}) bool {
-					if val.(common.TaskStatus) == common.TaskStatusFailed {
+					if val.(taskstatus.TaskStatus) == taskstatus.TaskStatusFailed {
 						newStatus = processor.InstanceStatusFailed
 						return false
 					}
@@ -143,23 +154,21 @@ func (m *TaskMaster) UpdateTaskStatus(req *schedulerx.ContainerReportTaskStatusR
 
 	m.jobInstanceProgress = req.GetProgress()
 	if err := m.updateNewInstanceStatus(req.GetSerialNum(), jobInstanceId, newStatus, req.GetResult()); err != nil {
-		return fmt.Errorf("UpdateNewInstanceStatus2 failed, err=%s", err.Error())
+		return fmt.Errorf("updateNewInstanceStatus failed, err=%s", err.Error())
 	}
 	return nil
 }
 
 func (m *TaskMaster) updateNewInstanceStatus(serialNum, jobInstanceId int64, newStatus processor.InstanceStatus, result string) error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
 	if err := m.statusHandler.Handle(serialNum, newStatus, result); err != nil {
-		return fmt.Errorf("update jobInstanceId=%d, serialNum=%d, status=%+v failed, err=%s", jobInstanceId, serialNum, newStatus.EnDescriptor(), err.Error())
+		return fmt.Errorf("update status failed, err=%s", err.Error())
 	}
 	return nil
 }
 
 // BatchUpdateTaskStatus
-// MapTaskMaster may override this method do really batch process
-func (m *TaskMaster) BatchUpdateTaskStatus(req *schedulerx.ContainerBatchReportTaskStatuesRequest) error {
+// TODO: MapTaskMaster may override this method do really batch process
+func (m *TaskMaster) BatchUpdateTaskStatus(taskMaster taskmaster.TaskMaster, req *schedulerx.ContainerBatchReportTaskStatuesRequest) error {
 	for _, status := range req.GetTaskStatues() {
 		containerReportTaskStatusReq := &schedulerx.ContainerReportTaskStatusRequest{
 			JobId:         proto.Int64(req.GetJobId()),
@@ -182,9 +191,37 @@ func (m *TaskMaster) BatchUpdateTaskStatus(req *schedulerx.ContainerBatchReportT
 		if serialNum := req.GetSerialNum(); serialNum != 0 {
 			containerReportTaskStatusReq.SerialNum = proto.Int64(serialNum)
 		}
-		if err := m.UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
-			if err != nil {
-				return fmt.Errorf("UpdateTaskStatus failed, err=%s ", err.Error())
+
+		switch taskMaster.(type) {
+		case *BroadcastTaskMaster:
+			if err := taskMaster.(*BroadcastTaskMaster).UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
+				if err != nil {
+					return fmt.Errorf("BroadcastTaskMaster UpdateTaskStatus failed, err=%s ", err.Error())
+				}
+			}
+		case *BatchTaskMaster:
+			if err := taskMaster.(*BatchTaskMaster).UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
+				if err != nil {
+					return fmt.Errorf("BatchTaskMaster UpdateTaskStatus failed, err=%s ", err.Error())
+				}
+			}
+		case *GridTaskMaster:
+			if err := taskMaster.(*GridTaskMaster).UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
+				if err != nil {
+					return fmt.Errorf("GridTaskMaster UpdateTaskStatus failed, err=%s ", err.Error())
+				}
+			}
+		case *MapTaskMaster:
+			if err := taskMaster.(*MapTaskMaster).UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
+				if err != nil {
+					return fmt.Errorf("MapTaskMaster UpdateTaskStatus failed, err=%s ", err.Error())
+				}
+			}
+		default:
+			if err := m.UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
+				if err != nil {
+					return fmt.Errorf("UpdateTaskStatus failed, err=%s ", err.Error())
+				}
 			}
 		}
 	}
@@ -196,22 +233,27 @@ func (m *TaskMaster) KillInstance(reason string) error {
 	m.killed = true
 	m.lock.Unlock()
 
+	GetTimeScheduler().remove(m.jobInstanceInfo.GetJobInstanceId())
 	return nil
 }
 
 func (m *TaskMaster) DestroyContainerPool() {
+	// TODO Implement me
 	return
 }
 
 func (m *TaskMaster) KillTask(uniqueId, workerId, workerAddr string) {
+	// TODO Implement me
 	return
 }
 
 func (m *TaskMaster) RetryTasks(taskEntities []schedulerx.RetryTaskEntity) {
+	// TODO Implement me
 	return
 }
 
 func (m *TaskMaster) SubmitInstance(ctx context.Context, jobInstanceInfo *common.JobInstanceInfo) error {
+	// TODO Implement me
 	return nil
 }
 
@@ -247,11 +289,15 @@ func (m *TaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
 }
 
 func (m *TaskMaster) GetInstanceStatus() processor.InstanceStatus {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
 	return m.instanceStatus
 }
 
 func (m *TaskMaster) SetInstanceStatus(instanceStatus processor.InstanceStatus) {
+	m.lock.Lock()
 	m.instanceStatus = instanceStatus
+	m.lock.Unlock()
 }
 
 func (m *TaskMaster) IsKilled() bool {
@@ -301,6 +347,7 @@ func (m *TaskMaster) ResetJobInstanceWorkerList() {
 }
 
 func (m *TaskMaster) GetCurrentSelection() string {
+	// TODO implement me
 	return ""
 }
 
@@ -312,8 +359,8 @@ func (m *TaskMaster) convert2StartContainerRequest(jobInstanceInfo *common.JobIn
 		User:                   proto.String(jobInstanceInfo.GetUser()),
 		JobType:                proto.String(jobInstanceInfo.GetJobType()),
 		Content:                proto.String(jobInstanceInfo.GetContent()),
-		ScheduleTime:           proto.Int64(jobInstanceInfo.GetScheduleTime().Milliseconds()),
-		DataTime:               proto.Int64(jobInstanceInfo.GetDataTime().Milliseconds()),
+		ScheduleTime:           proto.Int64(jobInstanceInfo.GetScheduleTime().Nanoseconds()), // FIXME check if Nanoseconds
+		DataTime:               proto.Int64(jobInstanceInfo.GetDataTime().Nanoseconds()),     // FIXME check if Nanoseconds
 		Parameters:             proto.String(jobInstanceInfo.GetParameters()),
 		InstanceParameters:     proto.String(jobInstanceInfo.GetInstanceParameters()),
 		GroupId:                proto.String(jobInstanceInfo.GetGroupId()),
@@ -366,4 +413,16 @@ func (m *TaskMaster) convert2StartContainerRequest(jobInstanceInfo *common.JobIn
 	req.TimeExpression = proto.String(jobInstanceInfo.GetTimeExpression())
 
 	return req, nil
+}
+
+func (m *TaskMaster) RestJobInstanceWorkerList(freeWorkers *utils.Set) {
+	if freeWorkers.Size() > 0 {
+		m.jobInstanceInfo.SetAllWorkers(freeWorkers.ToStringSlice())
+		m.existInvalidWorker = false
+		logger.Infof("restJobInstanceWorkerList appGroupId=%v instanceId=%v workerSize=%v", m.jobInstanceInfo.GetAppGroupId(),
+			m.jobInstanceInfo.GetJobInstanceId(), freeWorkers.Size())
+	} else {
+		logger.Warnf("restJobInstanceWorkerList update appGroupId=%v instanceId=%v workers=0.", m.jobInstanceInfo.GetAppGroupId(),
+			m.jobInstanceInfo.GetJobInstanceId())
+	}
 }

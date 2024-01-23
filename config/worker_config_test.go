@@ -19,11 +19,8 @@ package config
 import "testing"
 
 func TestStructAssign(t *testing.T) {
-	config := NewWorkerConfig(WithDebugMode())
-	if config.isDebugMode == false {
-		t.Fatalf("Except enableMapMasterFailover=true, but got false")
-	}
-	if config.isMapMasterFailover == false {
+	config := NewWorkerConfig(WithDisableMapMasterFailover())
+	if config.isMapMasterFailover == true {
 		t.Fatalf("Except enableMapMasterFailover=true, but got false")
 	}
 }

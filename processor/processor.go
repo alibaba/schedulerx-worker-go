@@ -16,8 +16,28 @@
 
 package processor
 
-import "github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
+import (
+	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
+)
 
 type Processor interface {
 	Process(ctx *jobcontext.JobContext) (*ProcessResult, error)
+}
+
+type BroadcastProcessor interface {
+	Processor
+	PreProcess(ctx *jobcontext.JobContext) error
+	PostProcess(ctx *jobcontext.JobContext) (*ProcessResult, error)
+}
+
+type MapJobProcessor interface {
+	Processor
+	Map(jobCtx *jobcontext.JobContext, taskList []interface{}, taskName string) (*ProcessResult, error)
+	Kill(jobCtx *jobcontext.JobContext) error
+}
+
+type MapReduceJobProcessor interface {
+	MapJobProcessor
+	Reduce(jobCtx *jobcontext.JobContext) (*ProcessResult, error)
+	RunReduceIfFail(jobCtx *jobcontext.JobContext) bool
 }

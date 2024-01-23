@@ -31,6 +31,7 @@ const (
 	InstanceStatusRejected      InstanceStatus = 9
 	InstanceStatusAccepted      InstanceStatus = 10
 	InstanceStatusPartialFailed InstanceStatus = 11
+	InstanceStatusSkipped       InstanceStatus = 12
 	InstanceStatusRemoved       InstanceStatus = 99
 )
 
@@ -47,6 +48,7 @@ var (
 		9:  "拒绝",
 		10: "接收",
 		11: "部分失败",
+		12: "跳过",
 		99: "删除",
 	}
 	instanceStatusEnDesc = map[InstanceStatus]string{
@@ -61,6 +63,7 @@ var (
 		9:  "rejected",
 		10: "accepted",
 		11: "partial_failed",
+		12: "skipped",
 		99: "removed",
 	}
 )
@@ -74,5 +77,8 @@ func (status InstanceStatus) EnDescriptor() string {
 }
 
 func (status InstanceStatus) IsFinished() bool {
-	return status == InstanceStatusSucceed || status == InstanceStatusFailed || status == InstanceStatusRemoved
+	return status == InstanceStatusSucceed ||
+		status == InstanceStatusFailed ||
+		status == InstanceStatusSkipped ||
+		status == InstanceStatusRemoved
 }

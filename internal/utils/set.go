@@ -24,6 +24,10 @@ func NewSet() *Set {
 	return &Set{items: make(map[interface{}]struct{})}
 }
 
+func (s *Set) Size() int {
+	return len(s.items)
+}
+
 func (s *Set) Add(item interface{}) {
 	s.items[item] = struct{}{}
 }
@@ -35,6 +39,16 @@ func (s *Set) Remove(item interface{}) {
 func (s *Set) Contains(item interface{}) bool {
 	_, exists := s.items[item]
 	return exists
+}
+
+func (s *Set) ToStringSlice() []string {
+	result := make([]string, 0, len(s.items))
+	for item := range s.items {
+		if i, ok := item.(string); ok {
+			result = append(result, i)
+		}
+	}
+	return result
 }
 
 func (s *Set) ToInt64Slice() []int64 {
