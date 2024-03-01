@@ -140,6 +140,7 @@ func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
 	}
 	rcvr.batchProcessSvc = gopool
 
+	rcvr.stopBatchRetrieveCh = make(chan struct{})
 	rcvr.batchRetrieveFunc = func() {
 		for {
 			select {
