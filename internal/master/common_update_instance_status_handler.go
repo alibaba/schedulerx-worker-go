@@ -17,9 +17,6 @@
 package master
 
 import (
-	"github.com/asynkron/protoactor-go/actor"
-	"google.golang.org/protobuf/proto"
-
 	"github.com/alibaba/schedulerx-worker-go/config"
 	"github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
@@ -28,6 +25,8 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 	"github.com/alibaba/schedulerx-worker-go/processor"
+	"github.com/asynkron/protoactor-go/actor"
+	"google.golang.org/protobuf/proto"
 )
 
 var _ UpdateInstanceStatusHandler = &commonUpdateInstanceStatusHandler{}

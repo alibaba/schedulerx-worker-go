@@ -80,8 +80,8 @@ func NewTaskMaster(actorCtx actor.Context, jobInstanceInfo *common.JobInstanceIn
 }
 
 func (m *TaskMaster) Init() {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+	//	m.lock.Lock()
+	//	defer m.lock.Unlock()
 	if !m.inited {
 		m.inited = true
 	}
@@ -159,7 +159,10 @@ func (m *TaskMaster) UpdateTaskStatus(req *schedulerx.ContainerReportTaskStatusR
 	return nil
 }
 
-func (m *TaskMaster) updateNewInstanceStatus(serialNum, jobInstanceId int64, newStatus processor.InstanceStatus, result string) error {
+func (m *TaskMaster) updateNewInstanceStatus(serialNum int64, jobInstanceId int64, newStatus processor.InstanceStatus, result string) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	fmt.Printf("serialNum=%d, jobInstanceId=%d, status=%s\n", serialNum, jobInstanceId, newStatus)
 	if err := m.statusHandler.Handle(serialNum, newStatus, result); err != nil {
 		return fmt.Errorf("update status failed, err=%s", err.Error())
 	}
@@ -229,9 +232,9 @@ func (m *TaskMaster) BatchUpdateTaskStatus(taskMaster taskmaster.TaskMaster, req
 }
 
 func (m *TaskMaster) KillInstance(reason string) error {
-	m.lock.Lock()
+	//	m.lock.Lock()
 	m.killed = true
-	m.lock.Unlock()
+	//	m.lock.Unlock()
 
 	GetTimeScheduler().remove(m.jobInstanceInfo.GetJobInstanceId())
 	return nil
@@ -289,20 +292,20 @@ func (m *TaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
 }
 
 func (m *TaskMaster) GetInstanceStatus() processor.InstanceStatus {
-	m.lock.RLock()
-	defer m.lock.RUnlock()
+	//	m.lock.RLock()
+	//	defer m.lock.RUnlock()
 	return m.instanceStatus
 }
 
 func (m *TaskMaster) SetInstanceStatus(instanceStatus processor.InstanceStatus) {
-	m.lock.Lock()
+	//	m.lock.Lock()
 	m.instanceStatus = instanceStatus
-	m.lock.Unlock()
+	//	m.lock.Unlock()
 }
 
 func (m *TaskMaster) IsKilled() bool {
-	m.lock.RLock()
-	defer m.lock.RUnlock()
+	//	m.lock.RLock()
+	//	defer m.lock.RUnlock()
 	return m.killed
 }
 
@@ -316,8 +319,8 @@ func (m *TaskMaster) GetAliveCheckWorkerSet() *utils.ConcurrentSet {
 }
 
 func (m *TaskMaster) IsInited() bool {
-	m.lock.RLock()
-	defer m.lock.RUnlock()
+	//	m.lock.RLock()
+	//	defer m.lock.RUnlock()
 	return m.inited
 }
 
