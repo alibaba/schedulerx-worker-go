@@ -162,7 +162,7 @@ func (m *TaskMaster) UpdateTaskStatus(req *schedulerx.ContainerReportTaskStatusR
 func (m *TaskMaster) updateNewInstanceStatus(serialNum int64, jobInstanceId int64, newStatus processor.InstanceStatus, result string) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	fmt.Printf("serialNum=%d, jobInstanceId=%d, status=%s\n", serialNum, jobInstanceId, newStatus)
+	//	fmt.Printf("serialNum=%d, jobInstanceId=%d, status=%s\n", serialNum, jobInstanceId, newStatus)
 	if err := m.statusHandler.Handle(serialNum, newStatus, result); err != nil {
 		return fmt.Errorf("update status failed, err=%s", err.Error())
 	}
