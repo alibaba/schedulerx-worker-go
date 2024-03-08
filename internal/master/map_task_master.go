@@ -51,8 +51,7 @@ import (
 )
 
 var (
-	_    taskmaster.MapTaskMaster = &MapTaskMaster{}
-	once sync.Once
+	_ taskmaster.MapTaskMaster = &MapTaskMaster{}
 )
 
 type MapTaskMaster struct {
@@ -84,6 +83,7 @@ type MapTaskMaster struct {
 	xAttrs              *common.MapTaskXAttrs
 	taskCounter         *atomic.Int64
 	localTaskRouterPath string
+	once                sync.Once
 }
 
 func NewMapTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) taskmaster.TaskMaster {
@@ -139,7 +139,7 @@ func NewMapTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Co
 }
 
 func (m *MapTaskMaster) init() {
-	once.Do(func() {
+	m.once.Do(func() {
 		m.TaskMaster.Init()
 		jobIdAndInstanceId := strconv.FormatInt(m.GetJobInstanceInfo().GetJobId(), 10) + "_" + strconv.FormatInt(m.GetJobInstanceInfo().GetJobInstanceId(), 10)
 		logger.Infof("jobInstanceId=%d, map master config, pageSize:%d, queueSize:%d, dispatcherSize:%d, workerSize:%d",
@@ -160,9 +160,9 @@ func (m *MapTaskMaster) init() {
 		go m.checkWorkerAlive()
 
 		// PULL_MODEL specially
-		if m.xAttrs != nil && m.xAttrs.GetTaskDispatchMode() == string(common.TaskDispatchModePull) {
-			go m.notifyWorkerPull()
-		}
+		//		if m.xAttrs != nil && m.xAttrs.GetTaskDispatchMode() == string(common.TaskDispatchModePull) {
+		//			go m.notifyWorkerPull()
+		//		}
 	})
 }
 

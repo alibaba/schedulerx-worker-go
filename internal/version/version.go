@@ -18,5 +18,5 @@ package version
 
 // Version used for statistics and debug
 func Version() string {
-	return "v0.0.2"
+	return "v0.0.4"
 }
