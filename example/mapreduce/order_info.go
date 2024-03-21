@@ -51,7 +51,7 @@ func (mr *TestMapReduceJob) Kill(jobCtx *jobcontext.JobContext) error {
 // Process the MapReduce model is used to distributed scan orders for timeout confirmation
 func (mr *TestMapReduceJob) Process(jobCtx *jobcontext.JobContext) (*processor.ProcessResult, error) {
 	var (
-		num = 100 * 10000
+		num = 1000
 		err error
 	)
 	taskName := jobCtx.TaskName()
@@ -76,8 +76,8 @@ func (mr *TestMapReduceJob) Process(jobCtx *jobcontext.JobContext) (*processor.P
 			fmt.Printf("task is not OrderInfo, task=%+v\n", jobCtx.Task())
 		}
 		fmt.Printf("orderInfo=%+v\n", orderInfo)
-		time.Sleep(1 * time.Second)
-		fmt.Println("Finish Process...")
+		time.Sleep(10 * time.Millisecond)
+		//		fmt.Println("Finish Process...")
 		return processor.NewProcessResult(
 			processor.WithSucceed(),
 			processor.WithResult(strconv.Itoa(orderInfo.Value)),

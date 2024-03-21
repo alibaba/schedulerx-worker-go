@@ -24,9 +24,9 @@ func main() {
 	// This is just an example, the real configuration needs to be obtained from the platform
 	cfg := &schedulerx.Config{
 		Endpoint:  "acm.aliyun.com",
-		Namespace: "a0e3ffd7-xxx-xxx-xxx-86ca9dc68932",
-		GroupId:   "dts-demo",
-		AppKey:    "xxxxx",
+		Namespace: "fa6ed99e-1469-4477-855c-a2bf1659d039",
+		GroupId:   "xueren_test_sub",
+		AppKey:    "myV5K5Xaf1knuzKdPBaj3A==",
 	}
 	client, err := schedulerx.GetClient(cfg)
 	if err != nil {
