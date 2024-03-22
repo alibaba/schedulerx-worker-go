@@ -93,11 +93,19 @@ func InitActors(actorSystem *actor.ActorSystem) error {
 		port = int(grpcPort)
 	}
 
-	localHost, err := utils.GetIpv4AddrHost()
-	if err != nil {
-		panic(err)
+	if config.GetWorkerConfig().Iface() != "" {
+		localHost, err := utils.GetIpv4AddrByIface(config.GetWorkerConfig().Iface())
+		if err != nil {
+			panic(err)
+		}
+		host = localHost
+	} else {
+		localHost, err := utils.GetIpv4AddrHost()
+		if err != nil {
+			panic(err)
+		}
+		host = localHost
 	}
-	host = localHost
 
 	// The maximum limit for a subtask is 64kb, and a maximum of 1000 batches can be sent together, which is 64MB,
 	// plus about 200MB for serialization and request headers.

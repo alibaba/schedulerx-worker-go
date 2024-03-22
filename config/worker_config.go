@@ -133,6 +133,12 @@ func WithGrpcPort(port int32) Option {
 	}
 }
 
+func WithIface(iface string) Option {
+	return func(config *WorkerConfig) {
+		config.iface = iface
+	}
+}
+
 func NewWorkerConfig(opts ...Option) *WorkerConfig {
 	once.Do(func() {
 		workerConfig = defaultWorkerConfig()
@@ -159,6 +165,7 @@ type WorkerConfig struct {
 	workerMapPageSize               int32
 	taskBodySizeMax                 int32
 	grpcPort                        int32
+	iface                           string
 }
 
 func (w *WorkerConfig) IsShareContainerPool() bool {
@@ -219,6 +226,10 @@ func (w *WorkerConfig) TaskBodySizeMax() int32 {
 
 func (w *WorkerConfig) GrpcPort() int32 {
 	return w.grpcPort
+}
+
+func (w *WorkerConfig) Iface() string {
+	return w.iface
 }
 
 func defaultWorkerConfig() *WorkerConfig {

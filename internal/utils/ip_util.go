@@ -56,6 +56,31 @@ func GetIpv4AddrHost() (string, error) {
 	return "", errors.New("cannot find valid ipv4 addr")
 }
 
+func GetIpv4AddrByIface(_iface string) (string, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+
+	// 遍历所有网卡
+	for _, iface := range ifaces {
+		if iface.Name == _iface { // 指定网卡名称
+			addrs, err := iface.Addrs()
+			if err != nil {
+				return "", err
+			}
+			// 遍历网卡的地址信息
+			for _, addr := range addrs {
+				ip, _, _ := net.ParseCIDR(addr.String())
+				if ip.To4() != nil {
+					return ip.String(), nil
+				}
+			}
+		}
+	}
+	return "", errors.New("cannot find valid ipv4 addr")
+}
+
 func ParseIPAddr(addr string) (string, int, error) {
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
