@@ -89,8 +89,8 @@ func InitActors(actorSystem *actor.ActorSystem) error {
 		host = "0.0.0.0"
 		port = 0 // random port
 	)
-	if actorSystemPort := config.GetWorkerConfig().ActorSystemPort(); actorSystemPort != 0 {
-		port = int(actorSystemPort)
+	if grpcPort := config.GetWorkerConfig().GrpcPort(); grpcPort != 0 {
+		port = int(grpcPort)
 	}
 
 	localHost, err := utils.GetIpv4AddrHost()
