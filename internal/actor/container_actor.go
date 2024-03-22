@@ -17,6 +17,7 @@
 package actor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"runtime/debug"
@@ -346,5 +347,6 @@ func convertMasterStartContainerRequest2JobContext(req *schedulerx.MasterStartCo
 	jobCtx.SetShardingNum(req.GetShardingNum())
 	jobCtx.SetTimeType(req.GetTimeType())
 	jobCtx.SetTimeExpression(req.GetTimeExpression())
+	jobCtx.Context = context.Background()
 	return jobCtx, nil
 }
