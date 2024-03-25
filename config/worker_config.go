@@ -127,9 +127,15 @@ func WithTaskBodySizeMax(taskBodySizeMax int32) Option {
 	}
 }
 
-func WithActorSystemPort(port int32) Option {
+func WithGrpcPort(port int32) Option {
 	return func(config *WorkerConfig) {
-		config.actorSystemPort = port
+		config.grpcPort = port
+	}
+}
+
+func WithIface(iface string) Option {
+	return func(config *WorkerConfig) {
+		config.iface = iface
 	}
 }
 
@@ -158,7 +164,8 @@ type WorkerConfig struct {
 	workerParallelTaskMaxSize       int32
 	workerMapPageSize               int32
 	taskBodySizeMax                 int32
-	actorSystemPort                 int32
+	grpcPort                        int32
+	iface                           string
 }
 
 func (w *WorkerConfig) IsShareContainerPool() bool {
@@ -217,8 +224,12 @@ func (w *WorkerConfig) TaskBodySizeMax() int32 {
 	return w.taskBodySizeMax
 }
 
-func (w *WorkerConfig) ActorSystemPort() int32 {
-	return w.actorSystemPort
+func (w *WorkerConfig) GrpcPort() int32 {
+	return w.grpcPort
+}
+
+func (w *WorkerConfig) Iface() string {
+	return w.iface
 }
 
 func defaultWorkerConfig() *WorkerConfig {

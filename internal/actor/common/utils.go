@@ -25,7 +25,6 @@ import (
 	"github.com/asynkron/protoactor-go/actor"
 
 	"github.com/alibaba/schedulerx-worker-go/internal/remoting/pool"
-	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 )
 
 const (
@@ -72,11 +71,6 @@ func SchedulerxServerPid(ctx context.Context) *actor.PID {
 // The workerAddr issued by the server is the address reported by the heartbeat.
 // It is the connection address obtained from the connection pool, not the ActorSystem address, so it needs to be converted.
 func GetRealWorkerAddr(workerIdAddr string) string {
-	localHostAddr, err := utils.GetIpv4AddrHost()
-	if err != nil {
-		panic(err)
-	}
-
 	parts := strings.Split(workerIdAddr, "@")
 	workerAddr := parts[1]
 	addrParts := strings.Split(workerAddr, ":")
@@ -92,12 +86,7 @@ func GetRealWorkerAddr(workerIdAddr string) string {
 		panic(fmt.Sprintf("invalid worker addr: %s", workerAddr))
 	}
 
-	if addrParts[0] == localHostAddr {
-		// Debugging on local machine, starting multiple processes
-		host = "127.0.0.1"
-	} else {
-		host = addrParts[0]
-	}
+	host = addrParts[0]
 
 	if len(addrParts) == 2 {
 		port = addrParts[1]

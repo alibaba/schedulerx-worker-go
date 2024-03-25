@@ -17,6 +17,7 @@
 package actor
 
 import (
+	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/remote"
 	"google.golang.org/grpc"
@@ -85,11 +86,25 @@ func InitActors(actorSystem *actor.ActorSystem) error {
 	}()
 
 	var (
-		host = "127.0.0.1"
+		host = "0.0.0.0"
 		port = 0 // random port
 	)
-	if actorSystemPort := config.GetWorkerConfig().ActorSystemPort(); actorSystemPort != 0 {
-		port = int(actorSystemPort)
+	if grpcPort := config.GetWorkerConfig().GrpcPort(); grpcPort != 0 {
+		port = int(grpcPort)
+	}
+
+	if config.GetWorkerConfig().Iface() != "" {
+		localHost, err := utils.GetIpv4AddrByIface(config.GetWorkerConfig().Iface())
+		if err != nil {
+			panic(err)
+		}
+		host = localHost
+	} else {
+		localHost, err := utils.GetIpv4AddrHost()
+		if err != nil {
+			panic(err)
+		}
+		host = localHost
 	}
 
 	// The maximum limit for a subtask is 64kb, and a maximum of 1000 batches can be sent together, which is 64MB,
