@@ -282,7 +282,7 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 		}
 		if !a.statusReqBatchHandlerPool.Contains(statusReqBatchHandlerKey) {
 			// support 1.5 million requests
-			reqQueue := batch.NewReqQueue(150 * 10000)
+			reqQueue := batch.NewReqQueue(10000)
 			a.statusReqBatchHandlerPool.Start(
 				statusReqBatchHandlerKey,
 				batch.NewContainerStatusReqHandler(statusReqBatchHandlerKey, 1, 1, a.batchSize, reqQueue, req.GetInstanceMasterAkkaPath()))
