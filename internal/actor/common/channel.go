@@ -16,22 +16,25 @@
 
 package actorcomm
 
-import "github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
+import (
+	"github.com/alibaba/schedulerx-worker-go/config"
+	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
+)
 
 var (
-	sxMsgCh                  = make(chan interface{}, 10000)
-	heartbeatMsgCh           = make(chan interface{}, 10000)
-	taskMasterMsgCh          = make(chan interface{}, 10000)
-	containerRouterMsgCh     = make(chan interface{}, 10000)
-	atLeastOnceDeliveryMsgCh = make(chan interface{}, 10000)
+	sxMsgCh                  = make(chan interface{}, config.GetWorkerConfig().QueueSize())
+	heartbeatMsgCh           = make(chan interface{}, config.GetWorkerConfig().QueueSize())
+	taskMasterMsgCh          = make(chan interface{}, config.GetWorkerConfig().QueueSize())
+	containerRouterMsgCh     = make(chan interface{}, config.GetWorkerConfig().QueueSize())
+	atLeastOnceDeliveryMsgCh = make(chan interface{}, config.GetWorkerConfig().QueueSize())
 
-	workerMapTaskRespMsgCh                = make(chan *schedulerx.WorkerMapTaskResponse, 10000)
-	workerBatchUpdateTaskStatusRespMsgCh  = make(chan *schedulerx.WorkerBatchUpdateTaskStatusResponse, 10000)
-	workerQueryJobInstanceStatusRespMsgCh = make(chan *schedulerx.WorkerQueryJobInstanceStatusResponse, 10000)
-	workerClearTasksRespMsgCh             = make(chan *schedulerx.WorkerClearTasksResponse, 10000)
-	workerBatchCreateTasksRespMsgCh       = make(chan *schedulerx.WorkerBatchCreateTasksResponse, 10000)
-	workerPullTasksRespMsgCh              = make(chan *schedulerx.WorkerPullTasksResponse, 10000)
-	workerReportTaskListStatusRespMsgCh   = make(chan *schedulerx.WorkerReportTaskListStatusResponse, 10000)
+	workerMapTaskRespMsgCh                = make(chan *schedulerx.WorkerMapTaskResponse, config.GetWorkerConfig().QueueSize())
+	workerBatchUpdateTaskStatusRespMsgCh  = make(chan *schedulerx.WorkerBatchUpdateTaskStatusResponse, config.GetWorkerConfig().QueueSize())
+	workerQueryJobInstanceStatusRespMsgCh = make(chan *schedulerx.WorkerQueryJobInstanceStatusResponse, config.GetWorkerConfig().QueueSize())
+	workerClearTasksRespMsgCh             = make(chan *schedulerx.WorkerClearTasksResponse, config.GetWorkerConfig().QueueSize())
+	workerBatchCreateTasksRespMsgCh       = make(chan *schedulerx.WorkerBatchCreateTasksResponse, config.GetWorkerConfig().QueueSize())
+	workerPullTasksRespMsgCh              = make(chan *schedulerx.WorkerPullTasksResponse, config.GetWorkerConfig().QueueSize())
+	workerReportTaskListStatusRespMsgCh   = make(chan *schedulerx.WorkerReportTaskListStatusResponse, config.GetWorkerConfig().QueueSize())
 )
 
 func SxMsgReceiver() chan interface{} {

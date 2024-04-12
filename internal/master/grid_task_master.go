@@ -19,6 +19,7 @@ package master
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/alibaba/schedulerx-worker-go/config"
 
 	"github.com/asynkron/protoactor-go/actor"
 
@@ -46,9 +47,9 @@ func NewGridTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.C
 	}
 	gridTaskMaster.taskPersistence = persistence.GetH2MemoryPersistence()
 	gridTaskMaster.taskPersistence.InitTable()
-	gridTaskMaster.taskStatusReqQueue = batch.NewReqQueue(10000)
+	gridTaskMaster.taskStatusReqQueue = batch.NewReqQueue(config.GetWorkerConfig().QueueSize())
 	gridTaskMaster.taskStatusReqBatchHandler = batch.NewTMStatusReqHandler(jobInstanceId, 1, 1, 3000, gridTaskMaster.taskStatusReqQueue)
-	gridTaskMaster.taskBlockingQueue = batch.NewReqQueue(10000)
+	gridTaskMaster.taskBlockingQueue = batch.NewReqQueue(config.GetWorkerConfig().QueueSize())
 	if jobInstanceInfo.GetXattrs() != "" {
 		gridTaskMaster.xAttrs = new(common.MapTaskXAttrs)
 		if err := json.Unmarshal([]byte(jobInstanceInfo.GetXattrs()), gridTaskMaster.xAttrs); err != nil {

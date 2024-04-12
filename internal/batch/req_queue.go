@@ -18,17 +18,17 @@ package batch
 
 import (
 	"sync"
-	
+
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
 type ReqQueue struct {
-	capacity int64
+	capacity int32
 	requests []interface{}
 	lock     sync.RWMutex
 }
 
-func NewReqQueue(capacity int64) (q *ReqQueue) {
+func NewReqQueue(capacity int32) (q *ReqQueue) {
 	return &ReqQueue{
 		capacity: capacity,
 		requests: make([]interface{}, 0, capacity),
@@ -54,7 +54,7 @@ func (q *ReqQueue) RetrieveRequests(batchSize int32) []interface{} {
 
 func (q *ReqQueue) push(req interface{}) {
 	if req != nil {
-		if q.capacity > 0 && int64(q.Size()) == q.capacity {
+		if q.capacity > 0 && int32(q.Size()) == q.capacity {
 			logger.Warnf("req queue is full, capacity: %d", q.capacity)
 			return
 		}
@@ -75,11 +75,11 @@ func (q *ReqQueue) pop() interface{} {
 	return req
 }
 
-func (q *ReqQueue) SetCapacity(capacity int64) {
+func (q *ReqQueue) SetCapacity(capacity int32) {
 	q.lock.Lock()
 	defer q.lock.Unlock()
 	q.capacity = capacity
-	if int64(q.Size()) > q.capacity {
+	if int32(q.Size()) > q.capacity {
 		q.requests = q.requests[:q.capacity]
 	}
 }
