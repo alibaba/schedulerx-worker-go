@@ -109,8 +109,8 @@ func NewMapTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Co
 		taskStatusMap:         make(map[int64]taskstatus.TaskStatus),
 		taskCounter:           atomic.NewInt64(0),
 		localTaskRouterPath:   actorCtx.ActorSystem().Address(),
-		//taskStatusReqQueue:    batch.NewReqQueue(100000),
-		//taskBlockingQueue:     batch.NewReqQueue(100000),
+		// taskStatusReqQueue:    batch.NewReqQueue(100000),
+		// taskBlockingQueue:     batch.NewReqQueue(100000),
 	}
 
 	statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, mapTaskMaster, jobInstanceInfo)
@@ -119,21 +119,21 @@ func NewMapTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Co
 	}
 	mapTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, statusHandler)
 
-	//mapTaskMaster.taskStatusReqBatchHandler = batch.NewTMStatusReqHandler(jobInstanceInfo.GetJobInstanceId(), 1, 1, 3000, mapTaskMaster.taskStatusReqQueue)
-	//if jobInstanceInfo.GetXattrs() != "" {
+	// mapTaskMaster.taskStatusReqBatchHandler = batch.NewTMStatusReqHandler(jobInstanceInfo.GetJobInstanceId(), 1, 1, 3000, mapTaskMaster.taskStatusReqQueue)
+	// if jobInstanceInfo.GetXattrs() != "" {
 	//	if err := json.Unmarshal([]byte(jobInstanceInfo.GetXattrs()), mapTaskMaster.xAttrs); err != nil {
 	//		logger.Errorf("Unmarshal xAttrs failed, err=%s", err.Error())
 	//	}
-	//}
-	//if mapTaskMaster.xAttrs != nil && mapTaskMaster.xAttrs.GetTaskDispatchMode() == string(common.TaskDispatchModePull) {
+	// }
+	// if mapTaskMaster.xAttrs != nil && mapTaskMaster.xAttrs.GetTaskDispatchMode() == string(common.TaskDispatchModePull) {
 	//	mapTaskMaster.taskDispatchReqHandler = batch.NewTaskPullReqHandler(
 	//		jobInstanceInfo.GetJobInstanceId(), 1, 1, int32(mapTaskMaster.pageSize*int64(len(jobInstanceInfo.GetAllWorkers()))),
 	//		mapTaskMaster.taskBlockingQueue)
-	//} else {
+	// } else {
 	//	mapTaskMaster.taskDispatchReqHandler = batch.NewTaskPushReqHandler(
 	//		jobInstanceInfo.GetJobInstanceId(), 1, 1, int32(mapTaskMaster.pageSize*int64(len(jobInstanceInfo.GetAllWorkers()))),
 	//		mapTaskMaster.taskBlockingQueue, 3000)
-	//}
+	// }
 
 	return mapTaskMaster
 }
@@ -176,7 +176,7 @@ func (m *MapTaskMaster) pullTask(jobIdAndInstanceId string) {
 			time.Sleep(10 * time.Second)
 			continue
 		}
-		logger.Debugf("jobInstanceId=%d, pull cost=%dms", jobInstanceId, time.Now().Sub(startTime).Milliseconds())
+		logger.Debugf("jobInstanceId=%d, pull cost=%dms", jobInstanceId, time.Since(startTime).Milliseconds())
 		if len(taskInfos) == 0 {
 			logger.Debugf("pull task empty of jobInstanceId=%d, sleep 10s ...", jobInstanceId)
 			time.Sleep(10 * time.Second)
@@ -513,11 +513,11 @@ func (m *MapTaskMaster) machineOverload() bool {
 		taskQueueOverload = false
 	)
 	// FIXME golang get heap and cpu metric
-	//vmDetail := MetricsCollector.getMetrics()
-	//if vmDetail != nil {
+	// vmDetail := MetricsCollector.getMetrics()
+	// if vmDetail != nil {
 	//	memOverload = vmDetail.getHeap1Usage() >= WorkerConstants.USER_MEMORY_PERCENT_MAX
 	//	loadOverload = vmDetail.getCpuLoad1() >= vmDetail.getCpuProcessors()
-	//}
+	// }
 	return memOverload || loadOverload || taskQueueOverload
 }
 
@@ -551,7 +551,7 @@ func (m *MapTaskMaster) batchHandleContainers(workerIdAddr string, reqs []*sched
 	if dispatchMode == common.TaskDispatchModePush {
 		startTime := time.Now()
 		// FIXME
-		//workerAddr = actorcomm.GetRemoteWorkerAddr(workerAddr)
+		// workerAddr = actorcomm.GetRemoteWorkerAddr(workerAddr)
 
 		containerRouterActorPid := actorcomm.GetContainerRouterPid(workerAddr)
 		req := &schedulerx.MasterBatchStartContainersRequest{
@@ -863,12 +863,12 @@ func (m *MapTaskMaster) GetJobInstanceProgress() (string, error) {
 
 func (m *MapTaskMaster) CheckProcessor() {
 	// FIXME
-	//if "java".equalsIgnoreCase(jobInstanceInfo.getJobType()) {
+	// if "java".equalsIgnoreCase(jobInstanceInfo.getJobType()) {
 	//	processor := JavaProcessorProfileUtil.getJavaProcessor(jobInstanceInfo.getContent())
 	//	if !ok {
 	//		throw(NewIOException(processor.getClass().getName() + " must extends MapJobProcessor or MapReduceJobProcessor"))
 	//	}
-	//}
+	// }
 }
 
 func (m *MapTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
@@ -954,15 +954,15 @@ func (m *MapTaskMaster) Stop() {
 
 func (m *MapTaskMaster) startBatchHandler() error {
 	// FIXME
-	//if m.IsInited() {
+	// if m.IsInited() {
 	//	return nil
-	//}
+	// }
 	// start batch handlers
 	if err := m.taskStatusReqBatchHandler.Start(m.taskStatusReqBatchHandler); err != nil {
 		return err
 	}
 
-	//m.taskBlockingQueue = batch.NewReqQueue(m.queueSize)
+	// m.taskBlockingQueue = batch.NewReqQueue(m.queueSize)
 
 	if m.xAttrs != nil && m.xAttrs.GetTaskDispatchMode() == string(common.TaskDispatchModePush) {
 		m.taskDispatchReqHandler.SetWorkThreadNum(int(m.dispatcherSize))

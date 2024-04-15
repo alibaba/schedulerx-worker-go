@@ -68,6 +68,9 @@ func Handshake(ctx context.Context, conn net.Conn) error {
 			}
 
 			msg, err := trans.ReadAkkaMsg(dataBuf)
+			if err != nil {
+				return fmt.Errorf("handshake read akka msg err=%+v ", err)
+			}
 			if controlMsg := msg.Instruction; controlMsg != nil && controlMsg.CommandType != nil {
 				if int32(*controlMsg.CommandType) == int32(akka.CommandType_ASSOCIATE) {
 					logger.Infof("Receive handshake msg, msg=%+v ", controlMsg)

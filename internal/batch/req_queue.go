@@ -40,11 +40,11 @@ func (q *ReqQueue) SubmitRequest(request interface{}) {
 }
 
 func (q *ReqQueue) RetrieveRequests(batchSize int32) []interface{} {
-	res := make([]interface{}, 0, q.Size())
-	for i := 0; int32(i) < batchSize; i++ {
+	res := make([]interface{}, 0, batchSize)
+	for i := int32(0); i < batchSize; i++ {
 		request := q.pop()
 		if request == nil {
-			//empty, just break
+			// empty, just break
 			break
 		}
 		res = append(res, request)
