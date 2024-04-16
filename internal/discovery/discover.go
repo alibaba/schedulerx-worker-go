@@ -76,6 +76,7 @@ func (s *ServiceDiscover) Start(groupId, appKey string) {
 			s.refreshActiveServer(groupId, appKey)
 		case <-s.stopCh:
 			logger.Infof("receive stop signal")
+			return
 		}
 	}
 }
