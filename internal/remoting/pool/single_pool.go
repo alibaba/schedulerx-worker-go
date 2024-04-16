@@ -144,23 +144,17 @@ func (p *singleConnPool) isConnExisted() bool {
 }
 
 func (p *singleConnPool) onReconnectTrigger(ctx context.Context) {
-	for {
-		select {
-		case <-p.reconnectSignalCh:
-			if _, err := p.newConn(ctx); err != nil {
-				logger.Errorf("Reconnect server failed after connection isn't available, err=%s", err.Error())
-			}
+	for range p.reconnectSignalCh {
+		if _, err := p.newConn(ctx); err != nil {
+			logger.Errorf("Reconnect server failed after connection isn't available, err=%s", err.Error())
 		}
 	}
 }
 
 func (p *singleConnPool) onAddrChanged(ctx context.Context) {
-	for {
-		select {
-		case <-p.options.addrChangedSignalCh:
-			if _, err := p.newConn(ctx); err != nil {
-				logger.Errorf("Reconnect server failed after addr if changed, err=%s", err.Error())
-			}
+	for range p.options.addrChangedSignalCh {
+		if _, err := p.newConn(ctx); err != nil {
+			logger.Errorf("Reconnect server failed after addr if changed, err=%s", err.Error())
 		}
 	}
 }

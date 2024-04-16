@@ -128,7 +128,8 @@ func (rcvr *BaseReqHandler) SetWorkThreadNum(workThreadNum int) {
 }
 
 func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
-	gopool, err := ants.NewPool(rcvr.maxBatchThreadNum,
+	gopool, err := ants.NewPool(
+		rcvr.maxBatchThreadNum,
 		ants.WithExpiryDuration(30*time.Second),
 		ants.WithPanicHandler(func(i interface{}) {
 			if r := recover(); r != nil {
@@ -148,7 +149,7 @@ func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
 				break
 			default:
 				reqs := rcvr.AsyncHandleReqs(h)
-				logger.Debugf("jobInstanceId=%s, batch retrieve reqs, size:%d, remain size:%d, batchSize:%d",
+				logger.Debugf("jobInstanceId=%d, batch retrieve reqs, size:%d, remain size:%d, batchSize:%d",
 					rcvr.jobInstanceId, len(reqs), len(rcvr.reqsQueue.requests), rcvr.batchSize)
 				if int32(len(reqs)) < rcvr.batchSize*4/5 {
 					// no element in reqs, sleep a while for aggregation

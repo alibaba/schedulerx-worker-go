@@ -42,6 +42,13 @@ import (
 )
 
 var _ actor.Actor = &containerActor{}
+var defaultActorPool, _ = ants.NewPool(
+	ants.DefaultAntsPoolSize,
+	ants.WithPanicHandler(func(i interface{}) {
+		if r := recover(); r != nil {
+			logger.Errorf("Panic happened in containerStarter, %v\n%s", r, debug.Stack())
+		}
+	}))
 
 type containerActor struct {
 	enableShareContainerPool  bool
@@ -53,19 +60,12 @@ type containerActor struct {
 }
 
 func newContainerActor() *containerActor {
-	gopool, _ := ants.NewPool(
-		ants.DefaultAntsPoolSize,
-		ants.WithPanicHandler(func(i interface{}) {
-			if r := recover(); r != nil {
-				logger.Errorf("Panic happened in containerStarter, %v\n%s", r, debug.Stack())
-			}
-		}))
 	return &containerActor{
 		enableShareContainerPool:  config.GetWorkerConfig().IsShareContainerPool(),
 		batchSize:                 config.GetWorkerConfig().WorkerMapPageSize(),
 		statusReqBatchHandlerPool: batch.GetContainerStatusReqHandlerPool(),
 		containerPool:             container.GetThreadContainerPool(),
-		containerStarter:          gopool,
+		containerStarter:          defaultActorPool,
 		lock:                      sync.Mutex{},
 	}
 }
@@ -285,7 +285,9 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 			reqQueue := batch.NewReqQueue(config.GetWorkerConfig().QueueSize())
 			a.statusReqBatchHandlerPool.Start(
 				statusReqBatchHandlerKey,
-				batch.NewContainerStatusReqHandler(statusReqBatchHandlerKey, 1, 1, a.batchSize, reqQueue, req.GetInstanceMasterAkkaPath()))
+				batch.NewContainerStatusReqHandler(statusReqBatchHandlerKey, 1, 1,
+					a.batchSize, reqQueue, req.GetInstanceMasterAkkaPath()),
+			)
 		}
 		consumerNum := int32(constants.ConsumerNumDefault)
 		if req.GetConsumerNum() > 0 {

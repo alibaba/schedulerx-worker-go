@@ -19,9 +19,11 @@ package actor
 import (
 	"context"
 	"fmt"
-	"github.com/alibaba/schedulerx-worker-go/processor"
-	"github.com/tidwall/gjson"
 	"time"
+
+	"github.com/tidwall/gjson"
+
+	"github.com/alibaba/schedulerx-worker-go/processor"
 
 	"github.com/asynkron/protoactor-go/actor"
 	"google.golang.org/protobuf/proto"
@@ -67,16 +69,16 @@ func (a *jobInstanceActor) Receive(ctx actor.Context) {
 	switch msg := ctx.Message().(type) {
 	case *schedulerx.WorkerBatchReportTaskStatuesResponse:
 		// send to atLeastOnceDeliveryRoutingActor
-		//actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
+		// actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
 		//	Msg: msg,
-		//}
+		// }
 		// FIXME atLeastOnceDelivery not yet implement, retry 3 times, interval 30s
 		a.handleReportWorkerStatus(ctx, ctx.Message())
 	case *schedulerx.WorkerReportJobInstanceStatusResponse:
 		// send to atLeastOnceDeliveryRoutingActor
-		//actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
+		// actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
 		//	Msg: msg,
-		//}
+		// }
 		// FIXME atLeastOnceDelivery not yet implement, retry 3 times, interval 30s
 		a.handleReportWorkerStatus(ctx, ctx.Message())
 	case *actorcomm.SchedulerWrappedMsg:
@@ -141,7 +143,7 @@ func (a *jobInstanceActor) handleSubmitJobInstance(actorCtx actor.Context, msg *
 		}
 		task, ok := masterpool.GetTaskMasterPool().Tasks().Find(jobName)
 		if !ok || task == nil {
-			fmt.Errorf("handleSubmitJobInstance error, jobName=%s is unregistered. ", jobName)
+			logger.Errorf("handleSubmitJobInstance error, jobName=%s is unregistered. ", jobName)
 
 			// report job instance status with at-least-once-delivery
 			req := &schedulerx.WorkerReportJobInstanceStatusRequest{
@@ -244,7 +246,7 @@ func (a *jobInstanceActor) handleKillJobInstance(actorCtx actor.Context, msg *ac
 	} else {
 		if taskMaster := masterpool.GetTaskMasterPool().Get(req.GetJobInstanceId()); taskMaster != nil {
 			if err := taskMaster.KillInstance("killed from server"); err != nil {
-				logger.Infof(fmt.Sprintf("%d killed from server failed, err=%s", req.GetJobInstanceId()), err.Error())
+				logger.Infof("%d killed from server failed, err=%s", req.GetJobInstanceId(), err.Error())
 			}
 		}
 		errMsg := fmt.Sprintf("%d killed from server", req.GetJobInstanceId())

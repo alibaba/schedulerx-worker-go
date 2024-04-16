@@ -58,8 +58,8 @@ func NewMapJobProcessor() *MapJobProcessor {
 func (rcvr *MapJobProcessor) checkTaskObject(jobCtx *jobcontext.JobContext, taskObject interface{}) error {
 	// FIXME
 	isAdvancedVersion := false
-	//context := ContainerFactory.getContainerPool().getContext()
-	//isAdvancedVersion := GroupManager.INSTANCE.isAdvancedVersion(context.getGroupId())
+	// context := ContainerFactory.getContainerPool().getContext()
+	// isAdvancedVersion := GroupManager.INSTANCE.isAdvancedVersion(context.getGroupId())
 
 	if bizSubTask, ok := taskObject.(bizsubtask.BizSubTask); isAdvancedVersion && ok {
 		labelMap := bizSubTask.LabelMap()
@@ -216,11 +216,12 @@ func (rcvr *MapJobProcessor) Map(jobCtx *jobcontext.JobContext, taskList []inter
 			ret, err = rcvr.actorSystem.Root.RequestFuture(mapMasterPid, req, 30*time.Second).Result()
 			if errors.Is(err, actor.ErrTimeout) {
 				logger.Warnf("JobInstanceId=%d WorkerMapTaskRequest dispatch failed, due to send request=%+v to taskMaster timeout.", req.GetJobInstanceId(), req)
-				if retryCount < maxRetryCount {
+				for retryCount < maxRetryCount {
 					time.Sleep(10 * time.Millisecond)
 					ret, err = rcvr.actorSystem.Root.RequestFuture(mapMasterPid, req, 30*time.Second).Result()
 					retryCount++
-				} else {
+				}
+				if err != nil {
 					return nil, fmt.Errorf("JobInstanceId=%d WorkerMapTaskRequest dispatch failed, due to send request=%+v to taskMaster timeout after retry exceed %d times, err=%s ", req.GetJobInstanceId(), req, retryCount, err.Error())
 				}
 			}
@@ -255,7 +256,7 @@ func (rcvr *MapJobProcessor) Map(jobCtx *jobcontext.JobContext, taskList []inter
 }
 
 func (rcvr *MapJobProcessor) Kill(jobCtx *jobcontext.JobContext) error {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
