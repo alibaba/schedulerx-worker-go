@@ -146,7 +146,7 @@ func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
 		for {
 			select {
 			case <-rcvr.stopBatchRetrieveCh:
-				break
+				return
 			default:
 				reqs := rcvr.AsyncHandleReqs(h)
 				logger.Debugf("jobInstanceId=%d, batch retrieve reqs, size:%d, remain size:%d, batchSize:%d",
@@ -162,7 +162,6 @@ func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
 		}
 	}
 	go rcvr.batchRetrieveFunc()
-
 	return nil
 }
 
