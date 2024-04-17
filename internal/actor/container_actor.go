@@ -217,10 +217,9 @@ func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req 
 							logger.Infof("skip handleDestroyContainerPool cycleId=%v_%v, handler serialNum=%v.", req.GetJobInstanceId(), req.GetSerialNum(), reportTaskStatusRequest.GetSerialNum())
 							return
 						}
-					} else {
 						logger.Infof("handleDestroyContainerPool from cycleId=%v_%v, handler serialNum=%v.", req.GetJobInstanceId(), req.GetSerialNum(), reportTaskStatusRequest.GetSerialNum())
-						a.containerPool.DestroyByInstance(req.GetJobInstanceId())
 						a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
+						a.containerPool.DestroyByInstance(req.GetJobInstanceId())
 					}
 				}
 			}
