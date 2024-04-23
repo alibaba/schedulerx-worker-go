@@ -51,6 +51,8 @@ type Pair struct {
 }
 
 func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []interface{}, workerAddr string) {
+	defer h.activeRunnableNum.Dec()
+
 	reqs := make([]*schedulerx.ContainerReportTaskStatusRequest, 0, len(requests))
 	for _, req := range requests {
 		reqs = append(reqs, req.(*schedulerx.ContainerReportTaskStatusRequest))
@@ -63,9 +65,9 @@ func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []inte
 	err := h.batchProcessSvc.Submit(func() {
 		if h.enableShareContainerPool {
 			// FIXME fix import cycle
-			//// 如果开启共享线程池，statues 可能会有多个 jobInstanceId，需要先 split 成不同的 list
-			//taskStatusRequestMap := make(map[*Pair][]*schedulerx.ContainerReportTaskStatusRequest)
-			//for _, req := range reqs {
+			// // 如果开启共享线程池，statues 可能会有多个 jobInstanceId，需要先 split 成不同的 list
+			// taskStatusRequestMap := make(map[*Pair][]*schedulerx.ContainerReportTaskStatusRequest)
+			// for _, req := range reqs {
 			//	pair := &Pair{
 			//		jobInstanceId: req.GetJobInstanceId(),
 			//		serialNum:     req.GetSerialNum(),
@@ -75,10 +77,10 @@ func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []inte
 			//	} else {
 			//		taskStatusRequestMap[pair] = []*schedulerx.ContainerReportTaskStatusRequest{req}
 			//	}
-			//}
+			// }
 			//
-			//// 针对不同的 jobInstanceId，构造 batchStatusRequests
-			//for pair, reqs := range taskStatusRequestMap {
+			// // 针对不同的 jobInstanceId，构造 batchStatusRequests
+			// for pair, reqs := range taskStatusRequestMap {
 			//	var (
 			//		instanceMasterActorPath string
 			//		finishCount             = 0
@@ -137,12 +139,13 @@ func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []inte
 			//	} else {
 			//		logger.Errorf("instanceMasterActorPath is null, jobInstanceId=%d", jobInstanceId)
 			//	}
-			//}
+			// }
 		} else {
-			taskStatuses := make([]*schedulerx.TaskStatusInfo, 0, len(reqs))
-			// some attrs are duplicated in all reqs, for example: workAddr, workerId, jobId, jobInstanceId, taskMasterPath
+			// some attrs are duplicated in all reqs, for example:
+			// workAddr, workerId, jobId, jobInstanceId, taskMasterPath
 			// get first one used for all reqs.
 			taskStatusRequest := reqs[0]
+			serialTaskStatusMap := make(map[int64][]*schedulerx.TaskStatusInfo)
 			for _, req := range reqs {
 				taskStatusInfo := &schedulerx.TaskStatusInfo{
 					TaskId: proto.Int64(req.GetTaskId()),
@@ -157,23 +160,34 @@ func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []inte
 				if req.GetProgress() != "" {
 					taskStatusInfo.Progress = proto.String(req.GetProgress())
 				}
+				if req.GetTraceId() != "" {
+					taskStatusInfo.TraceId = proto.String(req.GetTraceId())
+				}
+
+				taskStatuses, ok := serialTaskStatusMap[req.GetSerialNum()]
+				if !ok {
+					taskStatuses = make([]*schedulerx.TaskStatusInfo, 0, len(reqs))
+					serialTaskStatusMap[req.GetSerialNum()] = taskStatuses
+				}
 				taskStatuses = append(taskStatuses, taskStatusInfo)
 			}
-			req := &schedulerx.ContainerBatchReportTaskStatuesRequest{
-				JobId:              taskStatusRequest.JobId,
-				JobInstanceId:      taskStatusRequest.JobInstanceId,
-				TaskStatues:        taskStatuses,
-				TaskMasterAkkaPath: taskStatusRequest.InstanceMasterActorPath,
-				WorkerAddr:         taskStatusRequest.WorkerAddr,
-				WorkerId:           taskStatusRequest.WorkerId,
-				SerialNum:          taskStatusRequest.SerialNum,
-			}
-			actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
-				Msg: req,
+
+			for serialNum, taskStatuses := range serialTaskStatusMap {
+				req := &schedulerx.ContainerBatchReportTaskStatuesRequest{
+					JobId:              taskStatusRequest.JobId,
+					JobInstanceId:      taskStatusRequest.JobInstanceId,
+					TaskStatues:        taskStatuses,
+					TaskMasterAkkaPath: taskStatusRequest.InstanceMasterActorPath,
+					WorkerAddr:         taskStatusRequest.WorkerAddr,
+					WorkerId:           taskStatusRequest.WorkerId,
+					SerialNum:          taskStatusRequest.SerialNum,
+				}
+				actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
+					Msg: req,
+				}
+				logger.Infof("jobInstanceId=%d, serialNum=%d, batch report status=%d to task master, size:%d", jobInstanceId, serialNum, taskStatusRequest.GetStatus(), len(taskStatuses))
 			}
 		}
-
-		h.activeRunnableNum.Dec()
 	})
 	if err != nil {
 		logger.Errorf("Process ContainerStatusReqHandler failed, submit to batchProcessSvc failed, err=%s", err.Error())

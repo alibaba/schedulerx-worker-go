@@ -22,19 +22,13 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor"
 )
 
-var (
-	taskMap *TaskMap
-	once    sync.Once
-)
+var taskMap = &TaskMap{tasks: sync.Map{}}
 
 type TaskMap struct {
 	tasks sync.Map // map[string]processor.Processor
 }
 
 func GetTaskMap() *TaskMap {
-	once.Do(func() {
-		taskMap = &TaskMap{tasks: sync.Map{}}
-	})
 	return taskMap
 }
 
