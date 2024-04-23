@@ -205,25 +205,31 @@ func (a *containerActor) handleKillContainer(actorCtx actor.Context, req *schedu
 
 func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req *schedulerx.MasterDestroyContainerPoolRequest) {
 	if !a.enableShareContainerPool {
-		handler, ok := a.statusReqBatchHandlerPool.GetHandlers().Load(req.GetJobInstanceId())
-		if ok {
-			a.lock.Lock()
-			defer a.lock.Unlock()
+		//		handler, ok := a.statusReqBatchHandlerPool.GetHandlers().Load(req.GetJobInstanceId())
+		//		if ok {
+		a.lock.Lock()
+		defer a.lock.Unlock()
+		logger.Infof("handleDestroyContainerPool from jobInstanceId=%v.", req.GetJobInstanceId())
+		a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
+		a.containerPool.DestroyByInstance(req.GetJobInstanceId())
+		/*
 			if h, ok := handler.(*batch.ContainerStatusReqHandler); ok {
-				if latestRequest := h.GetLatestRequest(); latestRequest != nil {
-					reportTaskStatusRequest, ok := latestRequest.(*schedulerx.ContainerReportTaskStatusRequest)
-					if ok {
-						if reportTaskStatusRequest.GetSerialNum() != req.GetSerialNum() {
-							logger.Infof("skip handleDestroyContainerPool cycleId=%v_%v, handler serialNum=%v.", req.GetJobInstanceId(), req.GetSerialNum(), reportTaskStatusRequest.GetSerialNum())
-							return
+
+					if latestRequest := h.GetLatestRequest(); latestRequest != nil {
+						reportTaskStatusRequest, ok := latestRequest.(*schedulerx.ContainerReportTaskStatusRequest)
+						if ok {
+							if reportTaskStatusRequest.GetSerialNum() != req.GetSerialNum() {
+								logger.Infof("skip handleDestroyContainerPool cycleId=%v_%v, handler serialNum=%v.", req.GetJobInstanceId(), req.GetSerialNum(), reportTaskStatusRequest.GetSerialNum())
+								return
+							}
+							logger.Infof("handleDestroyContainerPool from cycleId=%v_%v, handler serialNum=%v.", req.GetJobInstanceId(), req.GetSerialNum(), reportTaskStatusRequest.GetSerialNum())
+							a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
+							a.containerPool.DestroyByInstance(req.GetJobInstanceId())
 						}
-						logger.Infof("handleDestroyContainerPool from cycleId=%v_%v, handler serialNum=%v.", req.GetJobInstanceId(), req.GetSerialNum(), reportTaskStatusRequest.GetSerialNum())
-						a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
-						a.containerPool.DestroyByInstance(req.GetJobInstanceId())
 					}
-				}
 			}
-		}
+		*/
+		//		}
 	}
 	response := &schedulerx.MasterDestroyContainerPoolResponse{
 		Success:    proto.Bool(true),
@@ -235,7 +241,7 @@ func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req 
 		logger.Warnf("Cannot send MasterKillContainerResponse due to sender is unknown in handleDestroyContainerPool of containerActor, request=%+v", req)
 	}
 
-	a.containerPool.ReleaseInstanceLock(req.GetJobInstanceId())
+	//	a.containerPool.ReleaseInstanceLock(req.GetJobInstanceId())
 }
 
 func (a *containerActor) killInstance(jobId, jobInstanceId int64) {
