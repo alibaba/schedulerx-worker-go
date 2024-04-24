@@ -17,6 +17,9 @@
 package master
 
 import (
+	"github.com/asynkron/protoactor-go/actor"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/alibaba/schedulerx-worker-go/config"
 	"github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
@@ -25,8 +28,6 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 	"github.com/alibaba/schedulerx-worker-go/processor"
-	"github.com/asynkron/protoactor-go/actor"
-	"google.golang.org/protobuf/proto"
 )
 
 var _ UpdateInstanceStatusHandler = &commonUpdateInstanceStatusHandler{}
@@ -92,7 +93,7 @@ func (rcvr *commonUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 				rcvr.masterPool.Remove(jobInstanceId)
 			}
 
-			logger.Infof("uniqueId: %d is finished, remove from MasterPool.", uniqueId)
+			logger.Infof("uniqueId: %s is finished, remove from MasterPool.", uniqueId)
 		}
 	}
 	progress, err := rcvr.taskMaster.GetJobInstanceProgress()

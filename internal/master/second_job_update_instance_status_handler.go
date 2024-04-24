@@ -20,7 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -155,10 +155,10 @@ func (h *secondJobUpdateInstanceStatusHandler) getAllWorkers(appGroupId, jobId i
 	url := fmt.Sprintf("http://%s/app/getAllUsefulWorkerList.json?appGroupId=%d&jobId=%d", openapi.GetOpenAPIClient().Domain(), appGroupId, jobId)
 	resp, err := openapi.GetOpenAPIClient().HttpClient().Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request getAllWorkers failed, appGroupId:%s, err:%s", appGroupId, err.Error())
+		return nil, fmt.Errorf("HTTP request getAllWorkers failed, appGroupId:%d, err:%s", appGroupId, err.Error())
 	}
 	defer resp.Body.Close()
-	respData, err := ioutil.ReadAll(resp.Body)
+	respData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("Read http http response failed, err=%s ", err.Error())
 	}
@@ -255,16 +255,16 @@ func (h *secondJobUpdateInstanceStatusHandler) triggerNextCycle(cycleId string, 
 	h.setHistory(h.taskMaster.GetSerialNum(), h.cycleStartTime, instanceStatus)
 
 	if !h.taskMaster.IsKilled() {
-		//TODO: 先清理这次迭代的资源，未来可以优化不需要每次清理
+		// TODO: 先清理这次迭代的资源，未来可以优化不需要每次清理
 		h.taskMaster.Clear(h.taskMaster)
 
 		// The current node is offline
 		// FIXME implement it
-		//if (!SchedulerxWorker.INITED) {
+		// if (!SchedulerxWorker.INITED) {
 		//	LOGGER.info("Current worker is not running. To shutdown this master JobInstanceId={}", jobInstanceInfo.getJobInstanceId());
 		//	taskMaster.killInstance(true,"Worker master shutdown.");
 		//	return;
-		//}
+		// }
 
 		// Calculate the next scheduling time and add it to the time scheduler
 		delayTime, err := strconv.Atoi(h.jobInstanceInfo.GetTimeExpression())

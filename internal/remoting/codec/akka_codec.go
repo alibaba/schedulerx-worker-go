@@ -233,8 +233,7 @@ func DecodeAkkaMessage(msg *akka.AkkaProtocolMessage) (interface{}, string, erro
 		default:
 			return nil, "", fmt.Errorf("Unknown message type=%s, decode failed ", msgType)
 		}
-	} else {
-		return nil, "", fmt.Errorf("Unknown message=%+v, decode failed ", msg)
 	}
-	return nil, "", fmt.Errorf("Invalid msg=%+v, decode failed ", msg)
+
+	return nil, "", fmt.Errorf("Unknown message=%+v, decode failed ", msg)
 }

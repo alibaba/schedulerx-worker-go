@@ -51,7 +51,7 @@ func (m *BatchTaskMaster) doMetricsCheck() error {
 		return err
 	}
 	if diskUsedPercent > constants.UserSpacePercentMax {
-		return fmt.Errorf("used space beyond d% % ", constants.UserSpacePercentMax*100)
+		return fmt.Errorf("used space beyond %f%% ", constants.UserSpacePercentMax*100)
 	}
 	return nil
 }

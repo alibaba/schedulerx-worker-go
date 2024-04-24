@@ -144,8 +144,8 @@ func newClient(cfg *Config, opts ...Option) (*Client, error) {
 		logger.Infof("SchedulerX server connected, remoteAddr=%s, localAddr=%s", conn.RemoteAddr(), conn.LocalAddr().String())
 	}
 
-	tasks := tasks.GetTaskMap()
-	masterpool.InitTaskMasterPool(masterpool.NewTaskMasterPool(tasks))
+	taskMap := tasks.GetTaskMap()
+	masterpool.InitTaskMasterPool(masterpool.NewTaskMasterPool(taskMap))
 
 	// Init actors
 	actorSystem := actor.NewActorSystem()
@@ -162,7 +162,7 @@ func newClient(cfg *Config, opts ...Option) (*Client, error) {
 	return &Client{
 		cfg:         cfg,
 		opts:        options,
-		tasks:       tasks,
+		tasks:       taskMap,
 		actorSystem: actorSystem,
 	}, nil
 }

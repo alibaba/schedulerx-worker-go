@@ -60,6 +60,7 @@ func (p *ContainerStatusReqHandlerPool) Stop(jobInstanceId int64) {
 	handler, ok := p.handlers.LoadAndDelete(jobInstanceId)
 	if ok {
 		handler.(*ContainerStatusReqHandler).Stop()
+		handler = nil
 	}
 }
 

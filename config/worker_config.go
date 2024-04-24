@@ -139,6 +139,12 @@ func WithIface(iface string) Option {
 	}
 }
 
+func WithQueueSize(queueSize int32) Option {
+	return func(config *WorkerConfig) {
+		config.queueSize = queueSize
+	}
+}
+
 func NewWorkerConfig(opts ...Option) *WorkerConfig {
 	once.Do(func() {
 		workerConfig = defaultWorkerConfig()
@@ -166,6 +172,7 @@ type WorkerConfig struct {
 	taskBodySizeMax                 int32
 	grpcPort                        int32
 	iface                           string
+	queueSize                       int32
 }
 
 func (w *WorkerConfig) IsShareContainerPool() bool {
@@ -232,6 +239,10 @@ func (w *WorkerConfig) Iface() string {
 	return w.iface
 }
 
+func (w *WorkerConfig) QueueSize() int32 {
+	return w.queueSize
+}
+
 func defaultWorkerConfig() *WorkerConfig {
 	return &WorkerConfig{
 		isSecondDelayIntervalMS:         false,
@@ -248,5 +259,6 @@ func defaultWorkerConfig() *WorkerConfig {
 		workerParallelTaskMaxSize:       constants.ParallelTaskListSizeMaxDefault,
 		workerMapPageSize:               constants.WorkerMapPageSizeDefault,
 		taskBodySizeMax:                 constants.TaskBodySizeMaxDefault,
+		queueSize:                       constants.MapMasterQueueSizeDefault,
 	}
 }

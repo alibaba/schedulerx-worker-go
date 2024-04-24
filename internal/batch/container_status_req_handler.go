@@ -63,9 +63,9 @@ func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []inte
 	err := h.batchProcessSvc.Submit(func() {
 		if h.enableShareContainerPool {
 			// FIXME fix import cycle
-			//// 如果开启共享线程池，statues 可能会有多个 jobInstanceId，需要先 split 成不同的 list
-			//taskStatusRequestMap := make(map[*Pair][]*schedulerx.ContainerReportTaskStatusRequest)
-			//for _, req := range reqs {
+			// // 如果开启共享线程池，statues 可能会有多个 jobInstanceId，需要先 split 成不同的 list
+			// taskStatusRequestMap := make(map[*Pair][]*schedulerx.ContainerReportTaskStatusRequest)
+			// for _, req := range reqs {
 			//	pair := &Pair{
 			//		jobInstanceId: req.GetJobInstanceId(),
 			//		serialNum:     req.GetSerialNum(),
@@ -75,10 +75,10 @@ func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []inte
 			//	} else {
 			//		taskStatusRequestMap[pair] = []*schedulerx.ContainerReportTaskStatusRequest{req}
 			//	}
-			//}
+			// }
 			//
-			//// 针对不同的 jobInstanceId，构造 batchStatusRequests
-			//for pair, reqs := range taskStatusRequestMap {
+			// // 针对不同的 jobInstanceId，构造 batchStatusRequests
+			// for pair, reqs := range taskStatusRequestMap {
 			//	var (
 			//		instanceMasterActorPath string
 			//		finishCount             = 0
@@ -137,7 +137,7 @@ func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []inte
 			//	} else {
 			//		logger.Errorf("instanceMasterActorPath is null, jobInstanceId=%d", jobInstanceId)
 			//	}
-			//}
+			// }
 		} else {
 			taskStatuses := make([]*schedulerx.TaskStatusInfo, 0, len(reqs))
 			// some attrs are duplicated in all reqs, for example: workAddr, workerId, jobId, jobInstanceId, taskMasterPath
@@ -156,6 +156,9 @@ func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []inte
 				}
 				if req.GetProgress() != "" {
 					taskStatusInfo.Progress = proto.String(req.GetProgress())
+				}
+				if req.GetTraceId() != "" {
+					taskStatusInfo.TraceId = proto.String(req.GetTraceId())
 				}
 				taskStatuses = append(taskStatuses, taskStatusInfo)
 			}
