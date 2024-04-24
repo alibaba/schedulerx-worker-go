@@ -50,11 +50,6 @@ type StandaloneTaskMaster struct {
 	taskMasterPoolCleaner func(int64)
 }
 
-var (
-	startCounter int
-	stopCounter  int
-)
-
 func NewStandaloneTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) taskmaster.TaskMaster {
 	var (
 		connpool              = pool.GetConnPool()
@@ -136,14 +131,12 @@ func (m *StandaloneTaskMaster) SubmitInstance(ctx context.Context, jobInstanceIn
 	resp, ok := response.(*schedulerx.MasterStartContainerResponse)
 	if !ok {
 		m.taskStatusMap.Store(uniqueId, taskstatus.TaskStatusFailed)
-		logger.Infof("======standalone_task_master.startCounter=%d\n", startCounter)
 		err = fmt.Errorf("response is not MasterStartContainerResponse, resp=%+v", response)
 		return err
 	}
 	if resp.GetSuccess() {
 		m.taskStatusMap.Store(uniqueId, taskstatus.TaskStatusInit)
 		logger.Infof("Standalone taskMaster init worker succeed, workerAddr=%s, uniqueId=%s", workerAddr, uniqueId)
-		startCounter++
 		return nil
 	}
 
@@ -207,8 +200,6 @@ func (m *StandaloneTaskMaster) DestroyContainerPool() {
 	if err := m.actorContext.RequestFuture(actorcomm.GetContainerRouterPid(m.currentSelection), req, 5*time.Second).Wait(); err != nil {
 		logger.Errorf("Destroy containerPool failed, err: %s", err.Error())
 	}
-	stopCounter++
-	logger.Infof("======standalone_task_master.stopCounter=%d\n", stopCounter)
 }
 
 func (m *StandaloneTaskMaster) CheckProcessor() error {

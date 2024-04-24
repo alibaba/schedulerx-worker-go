@@ -59,12 +59,6 @@ type containerActor struct {
 	lock                      sync.Mutex
 }
 
-// 声明并初始化两个计数器变量
-var (
-	startCounter int
-	stopCounter  int
-)
-
 func newContainerActor() *containerActor {
 	return &containerActor{
 		enableShareContainerPool:  config.GetWorkerConfig().IsShareContainerPool(),
@@ -218,8 +212,6 @@ func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req 
 		logger.Infof("handleDestroyContainerPool from jobInstanceId=%v.", req.GetJobInstanceId())
 		a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
 		a.containerPool.DestroyByInstance(req.GetJobInstanceId())
-		stopCounter++
-		logger.Infof("======container_actor.stopCounter=%d\n", stopCounter)
 		/*
 			if h, ok := handler.(*batch.ContainerStatusReqHandler); ok {
 
@@ -302,8 +294,6 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 				batch.NewContainerStatusReqHandler(statusReqBatchHandlerKey, 1, 1,
 					a.batchSize, reqQueue, req.GetInstanceMasterAkkaPath()),
 			)
-			startCounter++
-			logger.Infof("======container_actor.startCounter=%d\n", startCounter)
 		}
 		consumerNum := int32(constants.ConsumerNumDefault)
 		if req.GetConsumerNum() > 0 {
