@@ -20,13 +20,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/panjf2000/ants/v2"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
-	"github.com/panjf2000/ants/v2"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/alibaba/schedulerx-worker-go/config"
@@ -58,6 +58,12 @@ type containerActor struct {
 	containerStarter          *ants.Pool
 	lock                      sync.Mutex
 }
+
+var (
+	startCounter int32
+	stopCounter  int32
+	counterLock  sync.Mutex
+)
 
 func newContainerActor() *containerActor {
 	return &containerActor{
@@ -212,6 +218,10 @@ func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req 
 		logger.Infof("handleDestroyContainerPool from jobInstanceId=%v.", req.GetJobInstanceId())
 		a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
 		a.containerPool.DestroyByInstance(req.GetJobInstanceId())
+		counterLock.Lock()
+		stopCounter++
+		logger.Infof("=====container_actor.stopCounter=%d\n", startCounter)
+		counterLock.Unlock()
 		/*
 			if h, ok := handler.(*batch.ContainerStatusReqHandler); ok {
 
@@ -294,6 +304,10 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 				batch.NewContainerStatusReqHandler(statusReqBatchHandlerKey, 1, 1,
 					a.batchSize, reqQueue, req.GetInstanceMasterAkkaPath()),
 			)
+			counterLock.Lock()
+			startCounter++
+			logger.Infof("=====container_actor.startCounter=%d\n", startCounter)
+			counterLock.Unlock()
 		}
 		consumerNum := int32(constants.ConsumerNumDefault)
 		if req.GetConsumerNum() > 0 {

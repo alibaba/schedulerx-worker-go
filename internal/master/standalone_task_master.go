@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
@@ -49,6 +50,12 @@ type StandaloneTaskMaster struct {
 	connpool              pool.ConnPool
 	taskMasterPoolCleaner func(int64)
 }
+
+var (
+	startCounter int32
+	stopCounter  int32
+	counterLock  sync.Mutex
+)
 
 func NewStandaloneTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) taskmaster.TaskMaster {
 	var (
@@ -137,6 +144,11 @@ func (m *StandaloneTaskMaster) SubmitInstance(ctx context.Context, jobInstanceIn
 	if resp.GetSuccess() {
 		m.taskStatusMap.Store(uniqueId, taskstatus.TaskStatusInit)
 		logger.Infof("Standalone taskMaster init worker succeed, workerAddr=%s, uniqueId=%s", workerAddr, uniqueId)
+
+		counterLock.Lock()
+		startCounter++
+		logger.Infof("=====standalone_task_master.startCounter=%d\n", startCounter)
+		counterLock.Unlock()
 		return nil
 	}
 
@@ -200,6 +212,11 @@ func (m *StandaloneTaskMaster) DestroyContainerPool() {
 	if err := m.actorContext.RequestFuture(actorcomm.GetContainerRouterPid(m.currentSelection), req, 5*time.Second).Wait(); err != nil {
 		logger.Errorf("Destroy containerPool failed, err: %s", err.Error())
 	}
+
+	counterLock.Lock()
+	stopCounter++
+	logger.Infof("=====standalone_task_master.stopCounter=%d\n", stopCounter)
+	counterLock.Unlock()
 }
 
 func (m *StandaloneTaskMaster) CheckProcessor() error {

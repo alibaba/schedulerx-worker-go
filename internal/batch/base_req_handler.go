@@ -19,6 +19,7 @@ package batch
 import (
 	"fmt"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/panjf2000/ants/v2"
@@ -52,6 +53,12 @@ type BaseReqHandler struct {
 	// onging runnable number, every subclass implement process method should decrement this value when a job was done.
 	activeRunnableNum *atomic.Int64
 }
+
+var (
+	startCounter int32
+	stopCounter  int32
+	counterLock  sync.Mutex
+)
 
 func NewBaseReqHandler(jobInstanceId int64, coreBatchThreadNum int, maxBatchThreadNum int, batchSize int32,
 	queue *ReqQueue, batchProcessThreadName string, batchRetrieveThreadName string) (rcvr *BaseReqHandler) {
@@ -163,6 +170,11 @@ func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
 	}
 	go rcvr.batchRetrieveFunc()
 
+	counterLock.Lock()
+	startCounter++
+	logger.Infof("=====base_req_handler.startCounter=%d\n", startCounter)
+	counterLock.Unlock()
+
 	return nil
 }
 
@@ -181,6 +193,11 @@ func (rcvr *BaseReqHandler) Stop() {
 	if rcvr.activeRunnableNum != nil {
 		rcvr.activeRunnableNum = nil
 	}
+
+	counterLock.Lock()
+	stopCounter++
+	logger.Infof("=====base_req_handler.stopCounter=%d\n", stopCounter)
+	counterLock.Unlock()
 }
 
 func (rcvr *BaseReqHandler) SubmitRequest(request interface{}) {
