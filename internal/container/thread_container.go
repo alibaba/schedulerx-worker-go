@@ -112,7 +112,7 @@ func (c *ThreadContainer) Start() {
 		}
 		result = processor.NewProcessResult(processor.WithFailed(), processor.WithResult(fixedErrMsg))
 		c.reportTaskStatus(result, workerAddr)
-		logger.Errorf("Process task=%s failed, uniqueId=%v, serialNum=%v, err=%s ", c.jobCtx.TaskName(), uniqueId, err.Error(), c.jobCtx.SerialNum())
+		logger.Errorf("Process task=%s failed, uniqueId=%v, serialNum=%v, err=%s ", c.jobCtx.TaskName(), uniqueId, c.jobCtx.SerialNum(), err.Error())
 		return
 	}
 
