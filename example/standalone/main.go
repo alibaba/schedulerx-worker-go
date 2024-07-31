@@ -16,17 +16,21 @@
 
 package main
 
-import "github.com/alibaba/schedulerx-worker-go"
+import (
+	"github.com/alibaba/schedulerx-worker-go"
+)
 
 func main() {
 	// This is just an example, the real configuration needs to be obtained from the platform
 	cfg := &schedulerx.Config{
 		Endpoint:  "acm.aliyun.com",
 		Namespace: "a0e3ffd7-xxx-xxx-xxx-86ca9dc68932",
-		GroupId:   "dts-demo",
+		GroupId:   "xueren_test_sub",
 		AppKey:    "xxxxx",
 	}
 	client, err := schedulerx.GetClient(cfg)
+	//	client, err := schedulerx.GetClient(cfg, schedulerx.WithWorkerConfig(config.NewWorkerConfig(
+	//		config.WithLabel("test"))))
 	if err != nil {
 		panic(err)
 	}
