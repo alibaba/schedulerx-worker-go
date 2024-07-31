@@ -31,7 +31,7 @@ type HelloWorld struct{}
 func (h *HelloWorld) Process(ctx *jobcontext.JobContext) (*processor.ProcessResult, error) {
 	fmt.Println("[Process] Start process my task: Hello world!")
 	// mock execute task
-	time.Sleep(3 * time.Second)
+	time.Sleep(5 * time.Second)
 	ret := new(processor.ProcessResult)
 	ret.SetSucceed()
 	fmt.Println("[Process] End process my task: Hello world!")

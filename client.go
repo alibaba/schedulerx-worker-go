@@ -28,7 +28,7 @@ import (
 
 	"github.com/alibaba/schedulerx-worker-go/config"
 	sxactor "github.com/alibaba/schedulerx-worker-go/internal/actor"
-	"github.com/alibaba/schedulerx-worker-go/internal/actor/common"
+	actorcomm "github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/discovery"
 	"github.com/alibaba/schedulerx-worker-go/internal/masterpool"
 	"github.com/alibaba/schedulerx-worker-go/internal/openapi"
