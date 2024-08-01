@@ -147,8 +147,12 @@ func (c *ThreadContainer) Kill() {
 		task, ok := taskMasterPool.Tasks().Find(jobName)
 		if !ok {
 			logger.Warnf("Kill task=%s failed, because it's not found. ", jobName)
+		} else {
+			kt, ok := task.(processor.KillProcessor)
+			if ok {
+				kt.Kill(c.jobCtx)
+			}
 		}
-		task.Kill(c.jobCtx)
 	}
 
 	workerAddr := c.actorCtx.ActorSystem().Address()

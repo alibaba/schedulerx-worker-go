@@ -22,6 +22,9 @@ import (
 
 type Processor interface {
 	Process(ctx *jobcontext.JobContext) (*ProcessResult, error)
+}
+
+type KillProcessor interface {
 	Kill(ctx *jobcontext.JobContext) error
 }
 
@@ -34,6 +37,7 @@ type BroadcastProcessor interface {
 type MapJobProcessor interface {
 	Processor
 	Map(jobCtx *jobcontext.JobContext, taskList []interface{}, taskName string) (*ProcessResult, error)
+	Kill(ctx *jobcontext.JobContext) error
 }
 
 type MapReduceJobProcessor interface {
