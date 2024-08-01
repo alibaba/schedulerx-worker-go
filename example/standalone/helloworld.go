@@ -28,12 +28,26 @@ var _ processor.Processor = &HelloWorld{}
 
 type HelloWorld struct{}
 
+var Stop = false
+
 func (h *HelloWorld) Process(ctx *jobcontext.JobContext) (*processor.ProcessResult, error) {
 	fmt.Println("[Process] Start process my task: Hello world!")
 	// mock execute task
-	time.Sleep(5 * time.Second)
+	for i := 0; i < 10; i++ {
+		fmt.Printf("Hello%d\n", i)
+		time.Sleep(2 * time.Second)
+		if Stop {
+			break
+		}
+	}
 	ret := new(processor.ProcessResult)
 	ret.SetSucceed()
 	fmt.Println("[Process] End process my task: Hello world!")
 	return ret, nil
+}
+
+func (h *HelloWorld) Kill(ctx *jobcontext.JobContext) error {
+	fmt.Println("[Kill] Start kill my task: Hello world!")
+	Stop = true
+	return nil
 }

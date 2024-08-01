@@ -67,3 +67,8 @@ func (t TestBroadcast) PostProcess(ctx *jobcontext.JobContext) (*processor.Proce
 	ret.SetResult(strconv.Itoa(num))
 	return ret, nil
 }
+
+func (t TestBroadcast) Kill(ctx *jobcontext.JobContext) error {
+	fmt.Println("[Kill] Start kill my task: TestBroadcast")
+	return nil
+}

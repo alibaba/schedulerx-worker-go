@@ -26,7 +26,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/alibaba/schedulerx-worker-go/config"
-	"github.com/alibaba/schedulerx-worker-go/internal/actor/common"
+	actorcomm "github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/batch"
 	"github.com/alibaba/schedulerx-worker-go/internal/constants"
 	"github.com/alibaba/schedulerx-worker-go/internal/masterpool"
@@ -140,7 +140,16 @@ func (c *ThreadContainer) Start() {
 }
 
 func (c *ThreadContainer) Kill() {
-	logger.Infof("kill container, jobInstanceId=%v", c.jobCtx.JobInstanceId())
+	logger.Infof("kill container, jobInstanceId=%v, content=%s", c.jobCtx.JobInstanceId(), c.jobCtx.Content())
+	jobName := gjson.Get(c.jobCtx.Content(), "jobName").String()
+	if jobName != "" {
+		taskMasterPool := masterpool.GetTaskMasterPool()
+		task, ok := taskMasterPool.Tasks().Find(jobName)
+		if !ok {
+			logger.Warnf("Kill task=%s failed, because it's not found. ", jobName)
+		}
+		task.Kill(c.jobCtx)
+	}
 
 	workerAddr := c.actorCtx.ActorSystem().Address()
 	req := &schedulerx.ContainerReportTaskStatusRequest{
