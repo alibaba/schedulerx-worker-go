@@ -145,6 +145,12 @@ func WithQueueSize(queueSize int32) Option {
 	}
 }
 
+func WithLabel(label string) Option {
+	return func(config *WorkerConfig) {
+		config.label = label
+	}
+}
+
 func NewWorkerConfig(opts ...Option) *WorkerConfig {
 	once.Do(func() {
 		workerConfig = defaultWorkerConfig()
@@ -173,6 +179,7 @@ type WorkerConfig struct {
 	grpcPort                        int32
 	iface                           string
 	queueSize                       int32
+	label                           string
 }
 
 func (w *WorkerConfig) IsShareContainerPool() bool {
@@ -241,6 +248,10 @@ func (w *WorkerConfig) Iface() string {
 
 func (w *WorkerConfig) QueueSize() int32 {
 	return w.queueSize
+}
+
+func (w *WorkerConfig) Label() string {
+	return w.label
 }
 
 func defaultWorkerConfig() *WorkerConfig {

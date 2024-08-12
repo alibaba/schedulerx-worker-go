@@ -24,6 +24,10 @@ type Processor interface {
 	Process(ctx *jobcontext.JobContext) (*ProcessResult, error)
 }
 
+type KillProcessor interface {
+	Kill(ctx *jobcontext.JobContext) error
+}
+
 type BroadcastProcessor interface {
 	Processor
 	PreProcess(ctx *jobcontext.JobContext) error
@@ -33,7 +37,7 @@ type BroadcastProcessor interface {
 type MapJobProcessor interface {
 	Processor
 	Map(jobCtx *jobcontext.JobContext, taskList []interface{}, taskName string) (*ProcessResult, error)
-	Kill(jobCtx *jobcontext.JobContext) error
+	Kill(ctx *jobcontext.JobContext) error
 }
 
 type MapReduceJobProcessor interface {

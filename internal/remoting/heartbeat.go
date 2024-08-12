@@ -31,6 +31,7 @@ import (
 	"github.com/shirou/gopsutil/load"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/alibaba/schedulerx-worker-go/config"
 	"github.com/alibaba/schedulerx-worker-go/internal/discovery"
 	"github.com/alibaba/schedulerx-worker-go/internal/masterpool"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/akka"
@@ -157,5 +158,6 @@ func genHeartBeatRequest(groupId string, appGroupId int64, jobInstanceIds []int6
 		AppGroupId:    proto.Int64(appGroupId),
 		Source:        proto.String("unknown"),
 		RpcPort:       proto.Int32(int32(actorSystemPort)),
+		Label:         proto.String(config.GetWorkerConfig().Label()),
 	}
 }
