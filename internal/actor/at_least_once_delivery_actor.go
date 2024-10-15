@@ -19,12 +19,11 @@ package actor
 import (
 	"github.com/asynkron/protoactor-go/actor"
 
-	"github.com/alibaba/schedulerx-worker-go/internal/actor/common"
+	actorcomm "github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
-// TODO implement AtLeastOnceDelivery
 type atLeastOnceDeliveryRoutingActor struct{}
 
 func newAtLeastOnceDeliveryRoutingActor() *atLeastOnceDeliveryRoutingActor {
@@ -45,7 +44,7 @@ func (a *atLeastOnceDeliveryRoutingActor) Receive(actorCtx actor.Context) {
 	case *schedulerx.ContainerBatchReportTaskStatuesRequest:
 		a.handleContainerBatchStatus(actorCtx, wrappedMsg)
 	case *schedulerx.MasterDestroyContainerPoolRequest:
-		a.handleDestroyContainerPool(innerMsg)
+		a.handleDestroyContainerPool(actorCtx, wrappedMsg)
 	case *schedulerx.WorkerReportJobInstanceStatusResponse:
 		logger.Infof("Receive WorkerReportJobInstanceStatusResponse, resp=%+v", innerMsg)
 	case *schedulerx.WorkerBatchReportTaskStatuesResponse:
@@ -76,6 +75,7 @@ func (a *atLeastOnceDeliveryRoutingActor) handleContainerBatchStatus(actorCtx ac
 	actorCtx.Request(actorcomm.GetMapMasterPid(workerAddr), msg.Msg)
 }
 
-func (a *atLeastOnceDeliveryRoutingActor) handleDestroyContainerPool(req *schedulerx.MasterDestroyContainerPoolRequest) {
-	actorcomm.ContainerRouterMsgReceiver() <- req
+func (a *atLeastOnceDeliveryRoutingActor) handleDestroyContainerPool(actorCtx actor.Context, msg *actorcomm.SchedulerWrappedMsg) {
+	workerAddr := actorcomm.GetRealWorkerAddr(msg.Msg.(*schedulerx.MasterDestroyContainerPoolRequest).GetWorkerIdAddr())
+	actorCtx.Request(actorcomm.GetContainerRouterPid(workerAddr), msg.Msg)
 }

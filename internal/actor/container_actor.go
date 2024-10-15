@@ -238,7 +238,7 @@ func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req 
 	if senderPid := actorCtx.Sender(); senderPid != nil {
 		actorCtx.Send(senderPid, response)
 	} else {
-		logger.Warnf("Cannot send MasterKillContainerResponse due to sender is unknown in handleDestroyContainerPool of containerActor, request=%+v", req)
+		logger.Warnf("Cannot send MasterDestroyContainerPoolResponse due to sender is unknown in handleDestroyContainerPool of containerActor, request=%+v", req)
 	}
 
 	//	a.containerPool.ReleaseInstanceLock(req.GetJobInstanceId())

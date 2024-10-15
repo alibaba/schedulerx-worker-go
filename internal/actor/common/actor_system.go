@@ -24,8 +24,6 @@ import (
 
 var (
 	once        sync.Once
-	lock        sync.RWMutex
-	ponce       sync.Once
 	actorSystem *actor.ActorSystem
 )
 
@@ -37,7 +35,5 @@ func InitActorSystem(aSystem *actor.ActorSystem) {
 
 // GetActorSystem must be executed before InitActorSystem, otherwise it returns nil
 func GetActorSystem() *actor.ActorSystem {
-	lock.RLock()
-	defer lock.RUnlock()
 	return actorSystem
 }
