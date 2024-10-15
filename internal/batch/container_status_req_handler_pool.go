@@ -17,7 +17,11 @@
 package batch
 
 import (
+	"fmt"
 	"sync"
+	"time"
+
+	"go.uber.org/atomic"
 
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
 )
@@ -45,12 +49,28 @@ func NewContainerStatusReqHandlerPool() *ContainerStatusReqHandlerPool {
 	}
 }
 
+var (
+	startCount = atomic.NewInt64(0)
+	stopCount  = atomic.NewInt64(0)
+)
+
+func init() {
+	go func() {
+		ticker := time.NewTicker(time.Second * 10)
+		defer ticker.Stop()
+		for range ticker.C {
+			fmt.Println(time.Now().Format(time.DateTime), "startCount: ", startCount.Load(), "stopCount: ", stopCount.Load())
+		}
+	}()
+}
+
 func (p *ContainerStatusReqHandlerPool) Start(jobInstanceId int64, reqHandler *ContainerStatusReqHandler) {
 	// only process init phase;
 	// make sure no other already create mapping during sync blocking time range.
 	handler, ok := p.handlers.LoadOrStore(jobInstanceId, reqHandler)
 	if !ok {
 		if statusReqHandler, ok := handler.(*ContainerStatusReqHandler); ok {
+			startCount.Inc()
 			statusReqHandler.Start(statusReqHandler)
 		}
 	}
@@ -59,6 +79,7 @@ func (p *ContainerStatusReqHandlerPool) Start(jobInstanceId int64, reqHandler *C
 func (p *ContainerStatusReqHandlerPool) Stop(jobInstanceId int64) {
 	handler, ok := p.handlers.LoadAndDelete(jobInstanceId)
 	if ok {
+		stopCount.Inc()
 		handler.(*ContainerStatusReqHandler).Stop()
 		handler = nil
 	}
