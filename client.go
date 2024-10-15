@@ -156,8 +156,10 @@ func newClient(cfg *Config, opts ...Option) (*Client, error) {
 
 	// Keep heartbeat, and receive message
 	// KeepHeartbeat must after init actors, so that can get actorSystemPort from actorSystem
-	go remoting.KeepHeartbeat(ctx, actorSystem)
+	go remoting.KeepHeartbeat(ctx, actorSystem, cfg.AppKey)
 	go remoting.OnMsgReceived(ctx)
+	// send worker offline heartbeat when shutdown
+	go remoting.Shutdown(ctx, actorSystem, cfg.AppKey)
 
 	return &Client{
 		cfg:         cfg,
