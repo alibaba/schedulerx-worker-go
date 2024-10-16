@@ -231,14 +231,15 @@ func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req 
 		*/
 		//		}
 	}
-	response := &schedulerx.MasterDestroyContainerPoolResponse{
-		Success:    proto.Bool(true),
-		DeliveryId: proto.Int64(req.GetDeliveryId()),
-	}
+
 	if senderPid := actorCtx.Sender(); senderPid != nil {
+		response := &schedulerx.MasterDestroyContainerPoolResponse{
+			Success:    proto.Bool(true),
+			DeliveryId: proto.Int64(req.GetDeliveryId()),
+		}
 		actorCtx.Send(senderPid, response)
 	} else {
-		logger.Warnf("Cannot send MasterKillContainerResponse due to sender is unknown in handleDestroyContainerPool of containerActor, request=%+v", req)
+		logger.Warnf("Cannot send MasterDestroyContainerPoolResponse due to sender is unknown in handleDestroyContainerPool of containerActor, request=%+v", req)
 	}
 
 	//	a.containerPool.ReleaseInstanceLock(req.GetJobInstanceId())

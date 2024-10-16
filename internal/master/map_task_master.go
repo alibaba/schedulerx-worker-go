@@ -806,8 +806,8 @@ func (m *MapTaskMaster) DestroyContainerPool() {
 		request := &schedulerx.MasterDestroyContainerPoolRequest{
 			JobInstanceId: proto.Int64(m.GetJobInstanceInfo().GetJobInstanceId()),
 			JobId:         proto.Int64(m.GetJobInstanceInfo().GetJobId()),
-			SerialNum:     proto.Int64(m.GetSerialNum()),
 			WorkerIdAddr:  proto.String(workerIdAddr),
+			SerialNum:     proto.Int64(m.GetSerialNum()),
 		}
 		actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
 			Msg: request,

@@ -224,8 +224,8 @@ func (m *BroadcastTaskMaster) KillInstance(reason string) error {
 func (m *BroadcastTaskMaster) DestroyContainerPool() {
 	for _, workerIdAddr := range m.allWorkers {
 		req := &schedulerx.MasterDestroyContainerPoolRequest{
-			JobId:         proto.Int64(m.jobInstanceInfo.GetJobId()),
 			JobInstanceId: proto.Int64(m.jobInstanceInfo.GetJobInstanceId()),
+			JobId:         proto.Int64(m.jobInstanceInfo.GetJobId()),
 			WorkerIdAddr:  proto.String(workerIdAddr),
 			SerialNum:     proto.Int64(m.GetSerialNum()),
 		}

@@ -19,12 +19,11 @@ package actor
 import (
 	"github.com/asynkron/protoactor-go/actor"
 
-	"github.com/alibaba/schedulerx-worker-go/internal/actor/common"
+	actorcomm "github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
-// TODO implement AtLeastOnceDelivery
 type atLeastOnceDeliveryRoutingActor struct{}
 
 func newAtLeastOnceDeliveryRoutingActor() *atLeastOnceDeliveryRoutingActor {
@@ -32,20 +31,19 @@ func newAtLeastOnceDeliveryRoutingActor() *atLeastOnceDeliveryRoutingActor {
 }
 
 func (a *atLeastOnceDeliveryRoutingActor) Receive(actorCtx actor.Context) {
-	wrappedMsg, ok := actorCtx.Message().(*actorcomm.SchedulerWrappedMsg)
-	if !ok {
-		logger.Warnf("[atLeastOnceDeliveryRoutingActor] receive unknown message, msg=%+v", actorCtx.Message())
-		return
+	msg := actorCtx.Message()
+	if wrappedMsg, ok := msg.(*actorcomm.SchedulerWrappedMsg); ok {
+		msg = wrappedMsg.Msg
 	}
-	switch innerMsg := wrappedMsg.Msg.(type) {
+	switch innerMsg := msg.(type) {
 	case *schedulerx.WorkerReportJobInstanceStatusRequest:
 		a.handleReportInstanceStatusEvent(innerMsg)
 	case *schedulerx.WorkerBatchReportTaskStatuesRequest:
 		a.handleBatchReportTaskStatues(innerMsg)
 	case *schedulerx.ContainerBatchReportTaskStatuesRequest:
-		a.handleContainerBatchStatus(actorCtx, wrappedMsg)
+		a.handleContainerBatchStatus(actorCtx, innerMsg)
 	case *schedulerx.MasterDestroyContainerPoolRequest:
-		a.handleDestroyContainerPool(innerMsg)
+		a.handleDestroyContainerPool(actorCtx, innerMsg)
 	case *schedulerx.WorkerReportJobInstanceStatusResponse:
 		logger.Infof("Receive WorkerReportJobInstanceStatusResponse, resp=%+v", innerMsg)
 	case *schedulerx.WorkerBatchReportTaskStatuesResponse:
@@ -55,7 +53,7 @@ func (a *atLeastOnceDeliveryRoutingActor) Receive(actorCtx actor.Context) {
 	case *schedulerx.MasterDestroyContainerPoolResponse:
 		logger.Infof("Receive MasterDestroyContainerPoolResponse, resp=%+v", innerMsg)
 	default:
-		logger.Errorf("Receive unknown message in atLeastOnceDeliveryRoutingActor, msg=%+v", wrappedMsg)
+		logger.Errorf("Receive unknown message in atLeastOnceDeliveryRoutingActor, msg=%+v", msg)
 	}
 }
 
@@ -71,11 +69,12 @@ func (a *atLeastOnceDeliveryRoutingActor) handleBatchReportTaskStatues(req *sche
 	}
 }
 
-func (a *atLeastOnceDeliveryRoutingActor) handleContainerBatchStatus(actorCtx actor.Context, msg *actorcomm.SchedulerWrappedMsg) {
-	workerAddr := actorcomm.GetRealWorkerAddr(msg.Msg.(*schedulerx.ContainerBatchReportTaskStatuesRequest).GetTaskMasterAkkaPath())
-	actorCtx.Request(actorcomm.GetMapMasterPid(workerAddr), msg.Msg)
+func (a *atLeastOnceDeliveryRoutingActor) handleContainerBatchStatus(actorCtx actor.Context, msg *schedulerx.ContainerBatchReportTaskStatuesRequest) {
+	workerAddr := actorcomm.GetRealWorkerAddr(msg.GetTaskMasterAkkaPath())
+	actorCtx.Request(actorcomm.GetMapMasterPid(workerAddr), msg)
 }
 
-func (a *atLeastOnceDeliveryRoutingActor) handleDestroyContainerPool(req *schedulerx.MasterDestroyContainerPoolRequest) {
-	actorcomm.ContainerRouterMsgReceiver() <- req
+func (a *atLeastOnceDeliveryRoutingActor) handleDestroyContainerPool(actorCtx actor.Context, msg *schedulerx.MasterDestroyContainerPoolRequest) {
+	workerAddr := actorcomm.GetRealWorkerAddr(msg.GetWorkerIdAddr())
+	actorCtx.Request(actorcomm.GetContainerRouterPid(workerAddr), msg)
 }

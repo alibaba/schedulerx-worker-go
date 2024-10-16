@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/signal"
 	"runtime"
 	"syscall"
 	"time"
@@ -49,7 +50,7 @@ var (
 	waitHeartbeatRespTimeout = 5 * time.Second
 )
 
-func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem) {
+func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem, appKey string) {
 	var (
 		taskMasterPool = masterpool.GetTaskMasterPool()
 		connpool       = pool.GetConnPool()
@@ -64,7 +65,7 @@ func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem) {
 		}
 		for groupId, appGroupId := range groupManager.GroupId2AppGroupIdMap() {
 			jobInstanceIds := taskMasterPool.GetInstanceIds(int64(appGroupId))
-			heartbeatReq := genHeartBeatRequest(groupId, int64(appGroupId), jobInstanceIds, actorSystemPort)
+			heartbeatReq := genHeartBeatRequest(groupId, int64(appGroupId), jobInstanceIds, actorSystemPort, true, appKey)
 			if err := sendHeartbeat(ctx, heartbeatReq); err != nil {
 				if errors.Is(err, syscall.EPIPE) || errors.Is(err, os.ErrDeadlineExceeded) {
 					connpool.ReconnectTrigger() <- struct{}{}
@@ -82,6 +83,32 @@ func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem) {
 	for range ticker.C {
 		heartbeat()
 	}
+}
+
+func Shutdown(ctx context.Context, actorSystem *actor.ActorSystem, appKey string) {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1, syscall.SIGUSR2)
+	<-c
+
+	var (
+		taskMasterPool = masterpool.GetTaskMasterPool()
+		groupManager   = discovery.GetGroupManager()
+	)
+	_, actorSystemPort, err := actorSystem.GetHostPort()
+	if err != nil {
+		logger.Errorf("Write shutdown heartbeat to remote failed due to get actorSystem port failed, err=%s", err.Error())
+		return
+	}
+	for groupId, appGroupId := range groupManager.GroupId2AppGroupIdMap() {
+		jobInstanceIds := taskMasterPool.GetInstanceIds(int64(appGroupId))
+		heartbeatReq := genHeartBeatRequest(groupId, int64(appGroupId), jobInstanceIds, actorSystemPort, false, appKey)
+		if err = sendHeartbeat(ctx, heartbeatReq); err != nil {
+			logger.Warnf("Write shutdown heartbeat to server failed, reason=%s", err.Error())
+			continue
+		}
+		logger.Infof("Write shutdown heartbeat to remote succeed.")
+	}
+	os.Exit(0)
 }
 
 func sendHeartbeat(ctx context.Context, req *schedulerx.WorkerHeartBeatRequest) error {
@@ -147,7 +174,7 @@ func metricsJsonStr() string {
 	return string(ret)
 }
 
-func genHeartBeatRequest(groupId string, appGroupId int64, jobInstanceIds []int64, actorSystemPort int) *schedulerx.WorkerHeartBeatRequest {
+func genHeartBeatRequest(groupId string, appGroupId int64, jobInstanceIds []int64, actorSystemPort int, online bool, appKey string) *schedulerx.WorkerHeartBeatRequest {
 	return &schedulerx.WorkerHeartBeatRequest{
 		GroupId:       proto.String(groupId),
 		WorkerId:      proto.String(utils.GetWorkerId()),
@@ -157,7 +184,9 @@ func genHeartBeatRequest(groupId string, appGroupId int64, jobInstanceIds []int6
 		Starter:       proto.String("go"),
 		AppGroupId:    proto.Int64(appGroupId),
 		Source:        proto.String("unknown"),
-		RpcPort:       proto.Int32(int32(actorSystemPort)),
 		Label:         proto.String(config.GetWorkerConfig().Label()),
+		Online:        proto.Bool(online),
+		AppKey:        proto.String(appKey),
+		RpcPort:       proto.Int32(int32(actorSystemPort)),
 	}
 }

@@ -17,7 +17,6 @@
 package actor
 
 import (
-	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/remote"
 	"google.golang.org/grpc"
@@ -25,6 +24,7 @@ import (
 
 	"github.com/alibaba/schedulerx-worker-go/config"
 	"github.com/alibaba/schedulerx-worker-go/internal/actor/common"
+	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 )
 
 func InitActors(actorSystem *actor.ActorSystem) error {

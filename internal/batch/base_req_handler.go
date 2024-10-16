@@ -141,7 +141,7 @@ func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
 	}
 	rcvr.batchProcessSvc = gopool
 
-	rcvr.stopBatchRetrieveCh = make(chan struct{})
+	rcvr.stopBatchRetrieveCh = make(chan struct{}, 1)
 	rcvr.batchRetrieveFunc = func() {
 		for {
 			select {
@@ -168,6 +168,7 @@ func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
 
 func (rcvr *BaseReqHandler) Stop() {
 	if rcvr.batchRetrieveFunc != nil {
+		rcvr.batchRetrieveFunc = nil
 		rcvr.stopBatchRetrieveCh <- struct{}{}
 	}
 	if rcvr.batchProcessSvc != nil {
@@ -176,6 +177,7 @@ func (rcvr *BaseReqHandler) Stop() {
 	}
 	if rcvr.reqsQueue != nil {
 		rcvr.reqsQueue.Clear()
+		rcvr.reqsQueue = nil
 	}
 	if rcvr.activeRunnableNum != nil {
 		rcvr.activeRunnableNum = nil
