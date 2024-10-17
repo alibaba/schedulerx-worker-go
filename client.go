@@ -148,8 +148,7 @@ func newClient(cfg *Config, opts ...Option) (*Client, error) {
 	masterpool.InitTaskMasterPool(masterpool.NewTaskMasterPool(taskMap))
 
 	// Init actors
-	actorSystem := actor.NewActorSystem()
-	actorcomm.InitActorSystem(actorSystem)
+	actorSystem := actorcomm.GetActorSystem()
 	if err := sxactor.InitActors(actorSystem); err != nil {
 		return nil, fmt.Errorf("Init actors faild, err=%s. ", err.Error())
 	}
@@ -158,8 +157,6 @@ func newClient(cfg *Config, opts ...Option) (*Client, error) {
 	// KeepHeartbeat must after init actors, so that can get actorSystemPort from actorSystem
 	go remoting.KeepHeartbeat(ctx, actorSystem, cfg.AppKey)
 	go remoting.OnMsgReceived(ctx)
-	// send worker offline heartbeat when shutdown
-	go remoting.Shutdown(ctx, actorSystem, cfg.AppKey)
 
 	return &Client{
 		cfg:         cfg,
