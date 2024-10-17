@@ -35,8 +35,8 @@ type JobContext struct {
 	wfInstanceId            int64
 	taskId                  int64
 	jobName                 string
-	scheduleTime            time.Duration
-	dataTime                time.Duration
+	scheduleTime            time.Time
+	dataTime                time.Time
 	executeMode             string
 	jobType                 string
 	instanceMasterActorPath string
@@ -138,19 +138,19 @@ func (j *JobContext) SetJobName(jobName string) {
 	j.jobName = jobName
 }
 
-func (j *JobContext) ScheduleTime() time.Duration {
+func (j *JobContext) ScheduleTime() time.Time {
 	return j.scheduleTime
 }
 
-func (j *JobContext) SetScheduleTime(scheduleTime time.Duration) {
+func (j *JobContext) SetScheduleTime(scheduleTime time.Time) {
 	j.scheduleTime = scheduleTime
 }
 
-func (j *JobContext) DataTime() time.Duration {
+func (j *JobContext) DataTime() time.Time {
 	return j.dataTime
 }
 
-func (j *JobContext) SetDataTime(dataTime time.Duration) {
+func (j *JobContext) SetDataTime(dataTime time.Time) {
 	j.dataTime = dataTime
 }
 

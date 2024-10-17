@@ -28,8 +28,8 @@ type JobInstanceInfo struct {
 	appGroupId     int64
 	groupId        string
 	jobName        string
-	scheduleTime   time.Duration
-	dataTime       time.Duration
+	scheduleTime   time.Time
+	dataTime       time.Time
 	jobType        string
 	executeMode    string
 	content        string
@@ -89,11 +89,11 @@ func (j *JobInstanceInfo) SetJobName(jobName string) {
 	j.jobName = jobName
 }
 
-func (j *JobInstanceInfo) SetScheduleTime(scheduleTime time.Duration) {
+func (j *JobInstanceInfo) SetScheduleTime(scheduleTime time.Time) {
 	j.scheduleTime = scheduleTime
 }
 
-func (j *JobInstanceInfo) SetDataTime(dataTime time.Duration) {
+func (j *JobInstanceInfo) SetDataTime(dataTime time.Time) {
 	j.dataTime = dataTime
 }
 
@@ -215,11 +215,11 @@ func (j *JobInstanceInfo) GetJobName() string {
 	return j.jobName
 }
 
-func (j *JobInstanceInfo) GetScheduleTime() time.Duration {
+func (j *JobInstanceInfo) GetScheduleTime() time.Time {
 	return j.scheduleTime
 }
 
-func (j *JobInstanceInfo) GetDataTime() time.Duration {
+func (j *JobInstanceInfo) GetDataTime() time.Time {
 	return j.dataTime
 }
 

@@ -366,14 +366,13 @@ func (h *secondJobUpdateInstanceStatusHandler) triggerNewCycle() {
 	cycleId := utils.GetUniqueId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId(), h.taskMaster.GetSerialNum())
 	logger.Infof("cycleId: %v cycle begin.", cycleId)
 	h.cycleStartTime = time.Now().UnixMilli()
-
-	h.jobInstanceInfo.SetScheduleTime(time.Duration(time.Now().Nanosecond()))
+	h.jobInstanceInfo.SetScheduleTime(time.Now())
 	// If existed invalid worker nodes, re-obtain the latest list
 	if h.taskMaster.ExistInvalidWorker() {
 		freeWorkers, err := h.getAllWorkers(h.jobInstanceInfo.GetAppGroupId(), h.jobInstanceInfo.GetJobId())
 		if err != nil {
 			h.taskMaster.KillInstance("killed, because of cycle submit failed.")
-			logger.Errorf("cycleId=%d cycle submit failed, need to kill.", cycleId, err.Error())
+			logger.Errorf("cycleId=%s cycle submit failed, err:%s, need to kill.", cycleId, err.Error())
 		}
 		h.taskMaster.RestJobInstanceWorkerList(freeWorkers)
 	}

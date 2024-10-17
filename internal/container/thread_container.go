@@ -71,7 +71,7 @@ func (c *ThreadContainer) Start() {
 	c.containerPool.SetContext(c.jobCtx)
 
 	startTime := time.Now().UnixMilli()
-	logger.Debugf("start run container, uniqueId=%v, cost=%vms, jobContext=%+v", uniqueId, startTime-c.jobCtx.ScheduleTime().Milliseconds(), c.jobCtx)
+	logger.Debugf("start run container, uniqueId=%v, cost=%vms, jobContext=%+v", uniqueId, startTime-c.jobCtx.ScheduleTime().UnixMilli(), c.jobCtx)
 
 	defer func() {
 		// clean containerPool

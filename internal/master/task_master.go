@@ -362,8 +362,8 @@ func (m *TaskMaster) convert2StartContainerRequest(jobInstanceInfo *common.JobIn
 		User:                   proto.String(jobInstanceInfo.GetUser()),
 		JobType:                proto.String(jobInstanceInfo.GetJobType()),
 		Content:                proto.String(jobInstanceInfo.GetContent()),
-		ScheduleTime:           proto.Int64(jobInstanceInfo.GetScheduleTime().Nanoseconds()), // FIXME check if Nanoseconds
-		DataTime:               proto.Int64(jobInstanceInfo.GetDataTime().Nanoseconds()),     // FIXME check if Nanoseconds
+		ScheduleTime:           proto.Int64(jobInstanceInfo.GetScheduleTime().UnixMilli()),
+		DataTime:               proto.Int64(jobInstanceInfo.GetDataTime().UnixMilli()),
 		Parameters:             proto.String(jobInstanceInfo.GetParameters()),
 		InstanceParameters:     proto.String(jobInstanceInfo.GetInstanceParameters()),
 		GroupId:                proto.String(jobInstanceInfo.GetGroupId()),

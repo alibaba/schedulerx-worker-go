@@ -21,7 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -444,7 +444,7 @@ func (c *Client) sendRequest(url string, request BaseRequest) ([]byte, error) {
 		return nil, fmt.Errorf("HTTP post failed, err=%s ", err.Error())
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("Read http post response failed, err=%s ", err.Error())
 	}
@@ -493,7 +493,7 @@ func (c *Client) getDomainByEndpoint() (string, error) {
 		return "", fmt.Errorf("Read http post response failed, statusCode=%s ", resp.Status)
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("Read http post response failed, err=%s ", err.Error())
 	}
