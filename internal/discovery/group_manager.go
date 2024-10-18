@@ -66,10 +66,10 @@ func GetGroupManager() *GroupManager {
 	return groupManager
 }
 
-func (g *GroupManager) GroupId2AppGroupIdMap() map[string]int {
-	normalMap := make(map[string]int)
+func (g *GroupManager) GroupId2AppGroupIdMap() map[string]int64 {
+	normalMap := make(map[string]int64)
 	g.groupId2AppGroupIdMap.Range(func(key, value interface{}) bool {
-		k, v := key.(string), value.(int)
+		k, v := key.(string), value.(int64)
 		normalMap[k] = v
 		return true
 	})
@@ -105,7 +105,7 @@ func (g *GroupManager) appendGroupId(groupId, parentGroupId, appKey string) erro
 	return nil
 }
 
-func (g *GroupManager) getAppGroupId(groupId, appKey string) (int, error) {
+func (g *GroupManager) getAppGroupId(groupId, appKey string) (int64, error) {
 	if len(g.client.Domain()) == 0 {
 		return 0, errors.New("domain missing")
 	}
@@ -144,7 +144,7 @@ func (g *GroupManager) getAppGroupId(groupId, appKey string) (int, error) {
 		return 0, fmt.Errorf("request appGroupId failed, groupId:%s, message:%s", groupId, respData.Message)
 	}
 
-	ret, err := strconv.Atoi(respData.Data)
+	ret, err := strconv.ParseInt(respData.Data, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("request appGroupId failed, data expect int, but got=%s", respData.Data)
 	}

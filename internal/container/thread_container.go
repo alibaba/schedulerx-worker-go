@@ -71,7 +71,7 @@ func (c *ThreadContainer) Start() {
 	c.containerPool.SetContext(c.jobCtx)
 
 	startTime := time.Now().UnixMilli()
-	logger.Debugf("start run container, uniqueId=%v, cost=%vms, jobContext=%+v", uniqueId, startTime-c.jobCtx.ScheduleTime().Milliseconds(), c.jobCtx)
+	logger.Debugf("start run container, uniqueId=%v, cost=%vms, jobContext=%+v", uniqueId, startTime-c.jobCtx.ScheduleTime().UnixMilli(), c.jobCtx)
 
 	defer func() {
 		// clean containerPool
@@ -79,7 +79,11 @@ func (c *ThreadContainer) Start() {
 		c.containerPool.RemoveContext()
 
 		if e := recover(); e != nil {
-			logger.Infof("Start run container panic, error=%v, stack=%s", e, debug.Stack())
+			logger.Errorf("Start run container panic, error=%v, stack=%s", e, debug.Stack())
+			errMsg := fmt.Sprintf("Process task panic, error=%v, stack=%s", e, debug.Stack())
+			result := processor.NewProcessResult(processor.WithFailed(), processor.WithResult(errMsg))
+			workerAddr := c.actorCtx.ActorSystem().Address()
+			c.reportTaskStatus(result, workerAddr)
 		}
 	}()
 
