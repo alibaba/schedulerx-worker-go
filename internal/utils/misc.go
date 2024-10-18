@@ -24,18 +24,18 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/shirou/gopsutil/disk"
+	atom "go.uber.org/atomic"
 
 	"github.com/alibaba/schedulerx-worker-go/internal/constants"
 )
 
 var (
-	seed              = 1000
+	seed              = atom.NewInt32(1000)
 	uid        uint64 = 0
-	deliveryId int64  = 0
+	deliveryId        = atom.NewInt64(0)
 )
 
 const (
@@ -73,15 +73,14 @@ func ShuffleStringSlice(nums []string) []string {
 }
 
 func GenPathTpl() string {
-	if seed == math.MaxInt32 {
-		seed = 0
+	if seed.Load() == math.MaxInt32 {
+		seed.Store(0)
 	}
 
-	seed++
-	return base64Func(seed, pathTplPrefix)
+	return base64Func(seed.Inc(), pathTplPrefix)
 }
 
-func base64Func(l int, sb string) string {
+func base64Func(l int32, sb string) string {
 	sb += string(base64Chars[l&63])
 	next := l >> 6
 	if next == 0 {
@@ -100,7 +99,7 @@ func GetHandshakeUid() uint64 {
 }
 
 func GetDeliveryId() int64 {
-	return atomic.AddInt64(&deliveryId, 1)
+	return deliveryId.Inc()
 }
 
 func RemoveSliceElem(s []string, elem string) []string {

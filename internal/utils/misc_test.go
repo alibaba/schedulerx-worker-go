@@ -19,6 +19,8 @@ package utils
 import (
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSyncMapLen(t *testing.T) {
@@ -44,7 +46,7 @@ func TestSyncMapLen(t *testing.T) {
 }
 
 func TestBase64Func(t *testing.T) {
-	testData := map[int]string{
+	testData := map[int32]string{
 		0:      "$a",
 		10:     "$k",
 		102:    "$Mb",
@@ -61,6 +63,16 @@ func TestBase64Func(t *testing.T) {
 			t.Errorf("Base64 coding failed，l=%d，Expect=%s，actual=%s", l, expected, result)
 		}
 	}
+}
+
+func TestGetDeliveryId(t *testing.T) {
+	a1 := GetDeliveryId()
+	a2 := GetDeliveryId()
+	a3 := GetDeliveryId()
+	ass := assert.New(t)
+	ass.Equal(a1, int64(1))
+	ass.Equal(a2, int64(2))
+	ass.Equal(a3, int64(3))
 }
 
 func TestInt64SliceToStringSlice(t *testing.T) {
