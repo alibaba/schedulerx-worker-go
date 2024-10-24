@@ -21,10 +21,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
-
-	"github.com/asynkron/protoactor-go/actor"
 
 	"github.com/alibaba/schedulerx-worker-go/config"
 	sxactor "github.com/alibaba/schedulerx-worker-go/internal/actor"
@@ -47,12 +48,21 @@ var (
 )
 
 type Client struct {
-	cfg            *Config
-	opts           *Options
-	connpool       pool.ConnPool
-	tasks          *tasks.TaskMap
-	actorSystem    *actor.ActorSystem
-	taskMasterPool *masterpool.TaskMasterPool
+	cfg   *Config
+	opts  *Options
+	tasks *tasks.TaskMap
+
+	stopChan chan os.Signal
+}
+
+func (c *Client) RegisterTask(name string, task processor.Processor) {
+	c.tasks.Register(name, task)
+}
+
+// Shutdown gracefully stop the client
+func (c *Client) Shutdown() {
+	c.stopChan <- syscall.SIGINT
+	time.Sleep(time.Second * 5)
 }
 
 type Config struct {
@@ -149,23 +159,22 @@ func newClient(cfg *Config, opts ...Option) (*Client, error) {
 
 	// Init actors
 	actorSystem := actorcomm.GetActorSystem()
-	if err := sxactor.InitActors(actorSystem); err != nil {
-		return nil, fmt.Errorf("Init actors faild, err=%s. ", err.Error())
+	if err = sxactor.InitActors(actorSystem); err != nil {
+		return nil, fmt.Errorf("init actors faild, err=%s", err.Error())
 	}
+
+	stopChan := make(chan os.Signal, 1)
+	signal.Notify(stopChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1, syscall.SIGUSR2)
 
 	// Keep heartbeat, and receive message
 	// KeepHeartbeat must after init actors, so that can get actorSystemPort from actorSystem
-	go remoting.KeepHeartbeat(ctx, actorSystem, cfg.AppKey)
+	go remoting.KeepHeartbeat(ctx, actorSystem, cfg.AppKey, stopChan)
 	go remoting.OnMsgReceived(ctx)
 
 	return &Client{
-		cfg:         cfg,
-		opts:        options,
-		tasks:       taskMap,
-		actorSystem: actorSystem,
+		cfg:      cfg,
+		opts:     options,
+		tasks:    taskMap,
+		stopChan: stopChan,
 	}, nil
-}
-
-func (c *Client) RegisterTask(name string, task processor.Processor) {
-	c.tasks.Register(name, task)
 }

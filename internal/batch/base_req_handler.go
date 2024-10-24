@@ -177,7 +177,6 @@ func (rcvr *BaseReqHandler) Stop() {
 	}
 	if rcvr.reqsQueue != nil {
 		rcvr.reqsQueue.Clear()
-		rcvr.reqsQueue = nil
 	}
 	if rcvr.activeRunnableNum != nil {
 		rcvr.activeRunnableNum = nil

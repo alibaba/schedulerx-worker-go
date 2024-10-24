@@ -23,14 +23,12 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/signal"
 	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/shirou/gopsutil/load"
-	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/alibaba/schedulerx-worker-go/config"
@@ -51,14 +49,13 @@ var (
 	waitHeartbeatRespTimeout = 5 * time.Second
 )
 
-func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem, appKey string) {
+func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem, appKey string, stopChan chan os.Signal) {
 	var (
-		online         = atomic.NewBool(true)
 		taskMasterPool = masterpool.GetTaskMasterPool()
 		groupManager   = discovery.GetGroupManager()
 	)
 
-	heartbeat := func() {
+	heartbeat := func(online bool) {
 		_, actorSystemPort, err := actorSystem.GetHostPort()
 		if err != nil {
 			logger.Errorf("Write heartbeat to remote failed due to get actorSystem port failed, err=%s", err.Error())
@@ -66,7 +63,7 @@ func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem, appKey s
 		}
 		for groupId, appGroupId := range groupManager.GroupId2AppGroupIdMap() {
 			jobInstanceIds := taskMasterPool.GetInstanceIds(appGroupId)
-			heartbeatReq := genHeartBeatRequest(groupId, appGroupId, jobInstanceIds, actorSystemPort, online.Load(), appKey)
+			heartbeatReq := genHeartBeatRequest(groupId, appGroupId, jobInstanceIds, actorSystemPort, online, appKey)
 			if err := sendHeartbeat(ctx, heartbeatReq); err != nil {
 				if errors.Is(err, syscall.EPIPE) || errors.Is(err, os.ErrDeadlineExceeded) {
 					pool.GetConnPool().ReconnectTrigger() <- struct{}{}
@@ -77,22 +74,19 @@ func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem, appKey s
 			logger.Debugf("Write heartbeat to remote succeed.")
 		}
 	}
-	heartbeat()
-
-	// send worker offline heartbeat when shutdown
-	go func() {
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1, syscall.SIGUSR2)
-		<-c
-		online.Store(false)
-		heartbeat()
-		logger.Infof("Write shutdown heartbeat to remote succeed.")
-	}()
+	heartbeat(true)
 
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
-	for range ticker.C {
-		heartbeat()
+	for {
+		select {
+		case <-stopChan:
+			heartbeat(false)
+			logger.Infof("Write shutdown heartbeat to remote succeed.")
+			return
+		case <-ticker.C:
+			heartbeat(true)
+		}
 	}
 }
 

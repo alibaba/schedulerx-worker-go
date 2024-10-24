@@ -350,6 +350,11 @@ func (mr *TestMapReduceJob) Reduce(jobCtx *jobcontext.JobContext) (*processor.Pr
 package main
 
 import (
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
 	"github.com/alibaba/schedulerx-worker-go"
 )
 
@@ -379,7 +384,12 @@ func main() {
 	client.RegisterTask("TestBroadcast", task2)
 	client.RegisterTask("TestMapJob", task3)
 	client.RegisterTask("TestMapReduceJob", task4)
-	select {}
+	
+	// wait for the stop signal
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1, syscall.SIGUSR2)
+	<-c
+	time.Sleep(time.Second * 5)
 }
 
 ```

@@ -31,7 +31,7 @@ var _ processor.BroadcastProcessor = &TestBroadcast{}
 type TestBroadcast struct{}
 
 // Process all machines would execute it.
-func (t TestBroadcast) Process(ctx *jobcontext.JobContext) (*processor.ProcessResult, error) {
+func (t *TestBroadcast) Process(ctx *jobcontext.JobContext) (*processor.ProcessResult, error) {
 	value := rand.Intn(10)
 	fmt.Printf("Total sharding num=%d, sharding=%d, value=%d\n", ctx.ShardingNum(), ctx.ShardingId(), value)
 	ret := new(processor.ProcessResult)
@@ -41,13 +41,13 @@ func (t TestBroadcast) Process(ctx *jobcontext.JobContext) (*processor.ProcessRe
 }
 
 // PreProcess only one machine will execute it.
-func (t TestBroadcast) PreProcess(ctx *jobcontext.JobContext) error {
+func (t *TestBroadcast) PreProcess(ctx *jobcontext.JobContext) error {
 	fmt.Println("TestBroadcastJob PreProcess")
 	return nil
 }
 
 // PostProcess only one machine will execute it.
-func (t TestBroadcast) PostProcess(ctx *jobcontext.JobContext) (*processor.ProcessResult, error) {
+func (t *TestBroadcast) PostProcess(ctx *jobcontext.JobContext) (*processor.ProcessResult, error) {
 	fmt.Println("TestBroadcastJob PostProcess")
 	allTaskResults := ctx.TaskResults()
 	allTaskStatuses := ctx.TaskStatuses()
@@ -68,7 +68,7 @@ func (t TestBroadcast) PostProcess(ctx *jobcontext.JobContext) (*processor.Proce
 	return ret, nil
 }
 
-func (t TestBroadcast) Kill(ctx *jobcontext.JobContext) error {
+func (t *TestBroadcast) Kill(ctx *jobcontext.JobContext) error {
 	fmt.Println("[Kill] Start kill my task: TestBroadcast")
 	return nil
 }

@@ -17,6 +17,11 @@
 package main
 
 import (
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
 	"github.com/alibaba/schedulerx-worker-go"
 	"github.com/alibaba/schedulerx-worker-go/processor/mapjob"
 )
@@ -39,5 +44,10 @@ func main() {
 		mapjob.NewMapReduceJobProcessor(), // FIXME how define user behavior
 	}
 	client.RegisterTask("TestMapReduceJob", task)
-	select {}
+
+	// wait for the stop signal
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1, syscall.SIGUSR2)
+	<-c
+	time.Sleep(time.Second * 5)
 }
