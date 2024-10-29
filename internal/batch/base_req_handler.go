@@ -173,13 +173,12 @@ func (rcvr *BaseReqHandler) Stop() {
 	}
 	if rcvr.batchProcessSvc != nil {
 		rcvr.batchProcessSvc.Release()
-		rcvr.batchProcessSvc = nil
 	}
 	if rcvr.reqsQueue != nil {
 		rcvr.reqsQueue.Clear()
 	}
 	if rcvr.activeRunnableNum != nil {
-		rcvr.activeRunnableNum = nil
+		rcvr.activeRunnableNum.Store(0)
 	}
 }
 

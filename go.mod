@@ -1,6 +1,6 @@
 module github.com/alibaba/schedulerx-worker-go
 
-go 1.18
+go 1.20
 
 require (
 	github.com/asynkron/protoactor-go v0.0.0-20230916135836-b14bb1f51af6
