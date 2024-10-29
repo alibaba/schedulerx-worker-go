@@ -256,7 +256,7 @@ func (rcvr *ServerTaskPersistence) UpdateTaskStatues(taskStatusInfos []*schedule
 	}
 	info := taskStatusInfos[0]
 	status2WorkIdAddr2TaskIds := getTaskStatusMap(taskStatusInfos)
-	var batchTaskStatuesReq *schedulerx.WorkerBatchReportTaskStatuesRequest
+	var batchTaskStatuesReq schedulerx.WorkerBatchReportTaskStatuesRequest
 	for status, workerAddr2TaskIds := range status2WorkIdAddr2TaskIds {
 		for workerIdAddr, taskIds := range workerAddr2TaskIds {
 			workerIdAddrParts := strings.Split(workerIdAddr, "@")
@@ -273,7 +273,7 @@ func (rcvr *ServerTaskPersistence) UpdateTaskStatues(taskStatusInfos []*schedule
 	batchTaskStatuesReq.JobInstanceId = proto.Int64(info.GetJobInstanceId())
 
 	actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
-		Msg: batchTaskStatuesReq,
+		Msg: &batchTaskStatuesReq,
 	}
 
 	return nil
