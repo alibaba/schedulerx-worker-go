@@ -164,7 +164,7 @@ func newClient(cfg *Config, opts ...Option) (*Client, error) {
 	}
 
 	stopChan := make(chan os.Signal, 1)
-	signal.Notify(stopChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1, syscall.SIGUSR2)
+	signal.Notify(stopChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// Keep heartbeat, and receive message
 	// KeepHeartbeat must after init actors, so that can get actorSystemPort from actorSystem
