@@ -44,7 +44,7 @@ func main() {
 
 	// wait for the stop signal
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1, syscall.SIGUSR2)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 	<-c
 	time.Sleep(time.Second * 5)
 }
