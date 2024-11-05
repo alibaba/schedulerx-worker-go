@@ -53,7 +53,7 @@ func NewH2ConnectionPool(opts ...Option) (*H2ConnectionPool, error) {
 		return nil, err
 	}
 	for _, file := range files {
-		if err := os.Remove(file); err != nil {
+		if err = os.Remove(file); err != nil {
 			return nil, err
 		}
 	}
@@ -66,5 +66,6 @@ func NewH2ConnectionPool(opts ...Option) (*H2ConnectionPool, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxIdleConns(5) // default 2
 	return &H2ConnectionPool{DB: db}, nil
 }
