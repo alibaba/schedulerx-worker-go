@@ -27,7 +27,6 @@ var (
 	actorSystem *actor.ActorSystem
 )
 
-// GetActorSystem must be executed before InitActorSystem, otherwise it returns nil
 func GetActorSystem() *actor.ActorSystem {
 	once.Do(func() {
 		actorSystem = actor.NewActorSystem()

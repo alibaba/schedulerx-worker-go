@@ -421,8 +421,9 @@ func (m *MapTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.ContainerR
 			taskName   = request.GetTaskName()
 		)
 
-		logger.Debugf("report task status:%s from worker:%s, uniqueId:%d", taskStatus.Descriptor(), workerAddr,
+		logger.Debugf("report task status:%s from worker:%s, uniqueId:%s", taskStatus.Descriptor(), workerAddr,
 			utils.GetUniqueId(request.GetJobId(), request.GetJobInstanceId(), request.GetTaskId()))
+
 		m.taskProgressMap.LoadOrStore(taskName, common.NewTaskProgressCounter(taskName))
 		if _, ok := m.workerProgressMap.Load(workerAddr); workerAddr != "" && !ok {
 			m.workerProgressMap.LoadOrStore(workerAddr, common.NewWorkerProgressCounter(workerAddr))
@@ -488,7 +489,10 @@ func (m *MapTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.ContainerR
 		break
 	}
 	if !updateSuccess {
-		m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, "persistent batch update TaskStatus error up to 3 times")
+		err := m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, "persistent batch update TaskStatus error up to 3 times")
+		if err != nil {
+			logger.Errorf("jobInstanceId=%d, UpdateNewInstanceStatus failed, err=%s", m.GetJobInstanceInfo().GetJobInstanceId(), err.Error())
+		}
 	}
 	logger.Debugf("jobInstanceId=%d batch update status db cost %dms", m.GetJobInstanceInfo().GetJobInstanceId(), time.Since(startTime).Milliseconds())
 }

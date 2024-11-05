@@ -20,23 +20,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"runtime"
 
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
-
-func LogDaoErr(ctx context.Context, err *error, params ...interface{}) {
-	if *err != nil {
-		funcName := ""
-		pc, _, _, ok := runtime.Caller(1)
-		if ok {
-			funcName = runtime.FuncForPC(pc).Name()
-		}
-
-		logger.Errorf("DaoError,func:%v,params:%v,err:%+v,", funcName, params, *err)
-	}
-}
 
 // SQLTxFunc is a function that will be called with an initialized 'DbTx' object
 // that can be used for executing statements and queries against a database.
