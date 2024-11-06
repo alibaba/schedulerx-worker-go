@@ -113,11 +113,7 @@ func (d *TaskDao) BatchDeleteTasks2(jobInstanceId int64, workerId string, worker
 		totalAffectCnt += affectCnt
 		return nil
 	})
-	if err != nil {
-		return 0, err
-	}
-
-	return totalAffectCnt, nil
+	return totalAffectCnt, err
 }
 
 func (d *TaskDao) BatchInsert(containers []*schedulerx.MasterStartContainerRequest, workerId string, workerAddr string) (int64, error) {
@@ -279,37 +275,22 @@ func (d *TaskDao) GetTaskStatistics() (*common.TaskStatistics, error) {
 	var result = new(common.TaskStatistics)
 
 	sql := "select count(distinct job_instance_id) from task"
-	rows1, err := d.h2.Query(sql)
+	var instanceId int64
+	err := d.h2.QueryRow(sql).Scan(&instanceId)
 	if err != nil {
 		return nil, err
 	}
-	defer rows1.Close()
-	for rows1.Next() {
-		var instanceId int64
-		if err = rows1.Scan(&instanceId); err != nil {
-			return nil, err
-		}
-		result.SetDistinctInstanceCount(instanceId)
-	}
-	if err = rows1.Err(); err != nil {
-		return nil, err
-	}
+	result.SetDistinctInstanceCount(instanceId)
 
 	sql = "select count(*) from task"
-	rows2, err := d.h2.Query(sql)
+	var taskCnt int64
+	err = d.h2.QueryRow(sql).Scan(&taskCnt)
 	if err != nil {
 		return nil, err
 	}
-	defer rows2.Close()
-	for rows2.Next() {
-		var taskCnt int64
-		if err = rows2.Scan(&taskCnt); err != nil {
-			return nil, err
-		}
-		result.SetTaskCount(taskCnt)
-	}
-	err = rows2.Err()
-	return result, err
+	result.SetTaskCount(taskCnt)
+
+	return result, nil
 }
 
 func (d *TaskDao) Insert(jobId int64, jobInstanceId int64, taskId int64, taskName string, taskBody []byte) error {
@@ -331,11 +312,13 @@ func (d *TaskDao) QueryStatus(jobInstanceId int64) ([]int32, error) {
 		return nil, err
 	}
 	defer stmt.Close()
+
 	rows, err := stmt.Query(jobInstanceId)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+
 	var statusList []int32
 	for rows.Next() {
 		var status int32
@@ -368,11 +351,13 @@ func (d *TaskDao) QueryTaskList(jobInstanceId int64, status int, pageSize int32)
 		return nil, err
 	}
 	defer stmt.Close()
+
 	rows, err := stmt.Query(jobInstanceId, status, pageSize)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+
 	var taskList []*TaskSnapshot
 	for rows.Next() {
 		snapshot := new(TaskSnapshot)
@@ -403,11 +388,13 @@ func (d *TaskDao) QueryTasks(jobInstanceId int64, pageSize int32) ([]*TaskSnapsh
 		return nil, err
 	}
 	defer stmt.Close()
+
 	rows, err := stmt.Query(jobInstanceId, pageSize)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+
 	var taskList []*TaskSnapshot
 	for rows.Next() {
 		snapshot := new(TaskSnapshot)
