@@ -22,11 +22,9 @@ import (
 	"path/filepath"
 
 	_ "github.com/mattn/go-sqlite3"
-
-	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
-const memoryModeDataSourceName = ":memory:"
+const memoryModeDataSourceName = "file::memory:?cache=shared"
 
 type H2ConnectionPool struct {
 	*sql.DB
@@ -50,39 +48,24 @@ func NewH2ConnectionPool(opts ...Option) (*H2ConnectionPool, error) {
 		opt(options)
 	}
 
-	dataSourceName := "sqlite3.db"
-	if options.dataSourceName != "" {
-		dataSourceName = options.dataSourceName
-	}
-
 	files, err := filepath.Glob("schedulerx2_*_sqlite3.db")
 	if err != nil {
 		return nil, err
 	}
 	for _, file := range files {
-		if err := os.Remove(file); err != nil {
+		if err = os.Remove(file); err != nil {
 			return nil, err
 		}
 	}
 
-	// memory mode no need creating local file
-	if dataSourceName != memoryModeDataSourceName {
-		logger.Infof("Creating %s sqlite3...", dataSourceName)
-		file, err := os.Create(dataSourceName)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-
-		logger.Infof("sqlite3 DB=%s created", dataSourceName)
+	dataSourceName := "sqlite3.db"
+	if options.dataSourceName != "" {
+		dataSourceName = options.dataSourceName
 	}
-
-	sqliteDatabase, err := sql.Open("sqlite3", dataSourceName)
+	db, err := sql.Open("sqlite3", dataSourceName)
 	if err != nil {
 		return nil, err
 	}
-
-	return &H2ConnectionPool{
-		sqliteDatabase,
-	}, nil
+	db.SetMaxIdleConns(5) // default 2
+	return &H2ConnectionPool{DB: db}, nil
 }

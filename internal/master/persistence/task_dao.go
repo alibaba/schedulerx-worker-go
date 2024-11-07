@@ -40,7 +40,7 @@ func NewTaskDao(h2CP *H2ConnectionPool) *TaskDao {
 }
 
 func (d *TaskDao) CreateTable() error {
-	sql1 := "CREATE TABLE IF NOT EXISTS task (" +
+	sql := "CREATE TABLE IF NOT EXISTS task (" +
 		"job_id unsigned bigint(20) NOT NULL," +
 		"job_instance_id unsigned bigint(20) NOT NULL," +
 		"task_id unsigned bigint(20) NOT NULL," +
@@ -56,27 +56,13 @@ func (d *TaskDao) CreateTable() error {
 		"CREATE INDEX idx_job_instance_id ON task (job_instance_id);" +
 		"CREATE INDEX idx_status ON task (status);"
 
-	stmt, err := d.h2.DB.Prepare(sql1)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	_, err = stmt.Exec()
-	if err != nil {
-		return err
-	}
-	return nil
+	_, err := d.h2.Exec(sql)
+	return err
 }
 
 func (d *TaskDao) DropTable() error {
 	sql := "DROP TABLE IF EXISTS task"
-	stmt, err := d.h2.DB.Prepare(sql)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	_, err = stmt.Exec()
+	_, err := d.h2.Exec(sql)
 	return err
 }
 
@@ -103,11 +89,7 @@ func (d *TaskDao) BatchDeleteTasks(jobInstanceId int64, taskIds []int64) (int64,
 		}
 		return nil
 	})
-	if err != nil {
-		return 0, err
-	}
-
-	return totalAffectCnt, nil
+	return totalAffectCnt, err
 }
 
 func (d *TaskDao) BatchDeleteTasks2(jobInstanceId int64, workerId string, workerAddr string) (int64, error) {
@@ -131,11 +113,7 @@ func (d *TaskDao) BatchDeleteTasks2(jobInstanceId int64, workerId string, worker
 		totalAffectCnt += affectCnt
 		return nil
 	})
-	if err != nil {
-		return 0, err
-	}
-
-	return totalAffectCnt, nil
+	return totalAffectCnt, err
 }
 
 func (d *TaskDao) BatchInsert(containers []*schedulerx.MasterStartContainerRequest, workerId string, workerAddr string) (int64, error) {
@@ -206,7 +184,6 @@ func (d *TaskDao) BatchUpdateStatus(jobInstanceId int64, taskIdList []int64, sta
 	if err != nil {
 		return 0, err
 	}
-
 	return totalAffectCnt, nil
 }
 
@@ -244,67 +221,45 @@ func (d *TaskDao) BatchUpdateStatus2(jobInstanceId int64, status int, workerId s
 		totalAffectCnt += affectCnt
 		return nil
 	})
-	if err != nil {
-		return 0, err
-	}
-
-	return totalAffectCnt, nil
-}
-
-func (d *TaskDao) DeleteByJobInstanceId(jobInstanceId int64) (int64, error) {
-	var (
-		totalAffectCnt int64
-		ctx            = context.Background()
-	)
-	sql := "delete from task where job_instance_id=?"
-	stmt, err := d.h2.DB.Prepare(sql)
-	if err != nil {
-		return 0, err
-	}
-	defer stmt.Close()
-	ret, err := stmt.ExecContext(ctx, jobInstanceId)
-	affectCnt, _ := ret.RowsAffected()
-	totalAffectCnt += affectCnt
 	return totalAffectCnt, err
 }
 
+func (d *TaskDao) DeleteByJobInstanceId(jobInstanceId int64) (int64, error) {
+	sql := "delete from task where job_instance_id=?"
+	stmt, err := d.h2.Prepare(sql)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close()
+	ret, err := stmt.Exec(jobInstanceId)
+	if err != nil {
+		return 0, err
+	}
+	return ret.RowsAffected()
+}
+
 func (d *TaskDao) Exist(jobInstanceId int64) (bool, error) {
-	ctx := context.Background()
 	sql := "select EXISTS (select * from task where job_instance_id=?)"
-	stmt, err := d.h2.DB.Prepare(sql)
+	stmt, err := d.h2.Prepare(sql)
 	if err != nil {
 		return false, err
 	}
 	defer stmt.Close()
 
-	row := stmt.QueryRowContext(ctx, jobInstanceId)
-	if err := row.Err(); err != nil {
-		return false, err
-	}
 	var isExisted bool
-	if err := stmt.QueryRowContext(ctx, jobInstanceId).Scan(&isExisted); err != nil {
-		return false, err
-	}
-	return isExisted, nil
+	err = stmt.QueryRow(jobInstanceId).Scan(&isExisted)
+	return isExisted, err
 }
 
 func (d *TaskDao) GetDistinctInstanceIds() ([]int64, error) {
-	var (
-		ctx    = context.Background()
-		result []int64
-	)
 	sql := "select distinct job_instance_id from task"
-	stmt, err := d.h2.DB.Prepare(sql)
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-
-	rows, err := stmt.QueryContext(ctx)
+	rows, err := d.h2.Query(sql)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+
+	var result []int64
 	for rows.Next() {
 		var instanceId int64
 		if err = rows.Scan(&instanceId); err != nil {
@@ -312,133 +267,98 @@ func (d *TaskDao) GetDistinctInstanceIds() ([]int64, error) {
 		}
 		result = append(result, instanceId)
 	}
-	return result, nil
+	err = rows.Err()
+	return result, err
 }
 
 func (d *TaskDao) GetTaskStatistics() (*common.TaskStatistics, error) {
-	var (
-		ctx    = context.Background()
-		result = new(common.TaskStatistics)
-	)
+	var result = new(common.TaskStatistics)
+
 	sql := "select count(distinct job_instance_id) from task"
-	stmt, err := d.h2.DB.Prepare(sql)
+	var instanceId int64
+	err := d.h2.QueryRow(sql).Scan(&instanceId)
 	if err != nil {
 		return nil, err
 	}
-	defer stmt.Close()
-	rows, err := stmt.QueryContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	if rows.Next() {
-		var instanceId int64
-		if err = rows.Scan(&instanceId); err != nil {
-			return nil, err
-		}
-		result.SetDistinctInstanceCount(instanceId)
-	}
+	result.SetDistinctInstanceCount(instanceId)
 
 	sql = "select count(*) from task"
-	stmt, err = d.h2.DB.Prepare(sql)
+	var taskCnt int64
+	err = d.h2.QueryRow(sql).Scan(&taskCnt)
 	if err != nil {
 		return nil, err
 	}
-	defer stmt.Close()
-	rows, err = stmt.QueryContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	if rows.Next() {
-		var taskCnt int64
-		if err = rows.Scan(&taskCnt); err != nil {
-			return nil, err
-		}
-		result.SetTaskCount(taskCnt)
-	}
+	result.SetTaskCount(taskCnt)
+
 	return result, nil
 }
 
 func (d *TaskDao) Insert(jobId int64, jobInstanceId int64, taskId int64, taskName string, taskBody []byte) error {
-	ctx := context.Background()
 	sql := "insert into task(job_id,job_instance_id,task_id,task_name,status,gmt_create,gmt_modified,task_body) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-	stmt, err := d.h2.DB.Prepare(sql)
+	stmt, err := d.h2.Prepare(sql)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	timeNowMill := time.Now().UnixMilli()
-	_, err = stmt.ExecContext(ctx, jobId, jobInstanceId, taskId, taskName, int(taskstatus.TaskStatusPulled), timeNowMill, timeNowMill, taskBody)
-	if err != nil {
-		return err
-	}
-	return nil
+	_, err = stmt.Exec(jobId, jobInstanceId, taskId, taskName, int(taskstatus.TaskStatusPulled), timeNowMill, timeNowMill, taskBody)
+	return err
 }
 
 func (d *TaskDao) QueryStatus(jobInstanceId int64) ([]int32, error) {
-	var (
-		ctx        = context.Background()
-		statusList []int32
-	)
 	sql := "select distinct(status) from task where job_instance_id=?"
-	stmt, err := d.h2.DB.Prepare(sql)
+	stmt, err := d.h2.Prepare(sql)
 	if err != nil {
 		return nil, err
 	}
 	defer stmt.Close()
-	rows, err := stmt.QueryContext(ctx, jobInstanceId)
+
+	rows, err := stmt.Query(jobInstanceId)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	if rows.Next() {
+
+	var statusList []int32
+	for rows.Next() {
 		var status int32
 		if err = rows.Scan(&status); err != nil {
 			return nil, err
 		}
 		statusList = append(statusList, status)
 	}
-	return statusList, nil
+	err = rows.Err()
+	return statusList, err
 }
 
 func (d *TaskDao) QueryTaskCount(jobInstanceId int64) (int64, error) {
-	var (
-		ctx     = context.Background()
-		taskCnt int64
-	)
 	sql := "select count(*) from task where job_instance_id=?"
-	stmt, err := d.h2.DB.Prepare(sql)
+	stmt, err := d.h2.Prepare(sql)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
-	row := stmt.QueryRowContext(ctx, jobInstanceId)
-	if row.Err() != nil {
-		return 0, err
-	}
-	if err = row.Scan(&taskCnt); err != nil {
-		return 0, err
-	}
-	return taskCnt, nil
+
+	var taskCnt int64
+	err = stmt.QueryRow(jobInstanceId).Scan(&taskCnt)
+	return taskCnt, err
 }
 
 func (d *TaskDao) QueryTaskList(jobInstanceId int64, status int, pageSize int32) ([]*TaskSnapshot, error) {
-	var (
-		ctx      = context.Background()
-		taskList []*TaskSnapshot
-	)
 	sql := "select * from task where job_instance_id=? and status=? limit ?"
-	stmt, err := d.h2.DB.Prepare(sql)
+	stmt, err := d.h2.Prepare(sql)
 	if err != nil {
 		return nil, err
 	}
 	defer stmt.Close()
-	rows, err := stmt.QueryContext(ctx, jobInstanceId, status, pageSize)
+
+	rows, err := stmt.Query(jobInstanceId, status, pageSize)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+
+	var taskList []*TaskSnapshot
 	for rows.Next() {
 		snapshot := new(TaskSnapshot)
 		if err = rows.Scan(
@@ -457,25 +377,25 @@ func (d *TaskDao) QueryTaskList(jobInstanceId int64, status int, pageSize int32)
 		}
 		taskList = append(taskList, snapshot)
 	}
-	return taskList, nil
+	err = rows.Err()
+	return taskList, err
 }
 
 func (d *TaskDao) QueryTasks(jobInstanceId int64, pageSize int32) ([]*TaskSnapshot, error) {
-	var (
-		ctx      = context.Background()
-		taskList []*TaskSnapshot
-	)
 	sql := "select * from task where job_instance_id=? limit ?"
-	stmt, err := d.h2.DB.Prepare(sql)
+	stmt, err := d.h2.Prepare(sql)
 	if err != nil {
 		return nil, err
 	}
 	defer stmt.Close()
-	rows, err := stmt.QueryContext(ctx, jobInstanceId, pageSize)
+
+	rows, err := stmt.Query(jobInstanceId, pageSize)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+
+	var taskList []*TaskSnapshot
 	for rows.Next() {
 		snapshot := new(TaskSnapshot)
 		if err = rows.Scan(
@@ -494,39 +414,35 @@ func (d *TaskDao) QueryTasks(jobInstanceId int64, pageSize int32) ([]*TaskSnapsh
 		}
 		taskList = append(taskList, snapshot)
 	}
-	return taskList, nil
+	err = rows.Err()
+	return taskList, err
 }
 
 func (d *TaskDao) UpdateStatus(jobInstanceId int64, taskId int64, status int, workerAddr string) (int64, error) {
-	ctx := context.Background()
 	sql := "update task set status=?,worker_addr=?,gmt_modified=? where job_instance_id=? and task_id=?"
-	stmt, err := d.h2.DB.Prepare(sql)
+	stmt, err := d.h2.Prepare(sql)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
-	ret, err := stmt.ExecContext(ctx, status, workerAddr, time.Now().UnixMilli(), jobInstanceId, taskId)
+	ret, err := stmt.Exec(status, workerAddr, time.Now().UnixMilli(), jobInstanceId, taskId)
 	affectCnt, _ := ret.RowsAffected()
 	return affectCnt, err
 }
 
 func (d *TaskDao) UpdateStatus2(jobInstanceId int64, taskIds []int64, status int, workerId string, workerAddr string) (int64, error) {
-	var (
-		ctx            = context.Background()
-		totalAffectCnt int64
-	)
 	sql := "update task set status=?, worker_id=?, worker_addr=? WHERE job_instance_id=? and task_id =?"
 	if status == int(taskstatus.TaskStatusPulled) {
 		sql = fmt.Sprintf("%v%v", sql, " and status = 3")
 	}
-	stmt, err := d.h2.DB.Prepare(sql)
+	stmt, err := d.h2.Prepare(sql)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
-
+	var totalAffectCnt int64
 	for _, taskId := range taskIds {
-		ret, err := stmt.ExecContext(ctx, status, workerId, workerAddr, jobInstanceId, taskId)
+		ret, err := stmt.Exec(status, workerId, workerAddr, jobInstanceId, taskId)
 		if err != nil {
 			continue
 		}
@@ -537,14 +453,15 @@ func (d *TaskDao) UpdateStatus2(jobInstanceId int64, taskIds []int64, status int
 }
 
 func (d *TaskDao) UpdateWorker(jobInstanceId int64, taskId int64, workerId string, workerAddr string) (int64, error) {
-	ctx := context.Background()
 	sql := "update task set worker_id=?,worker_addr=?,gmt_modified=? where job_instance_id=? and task_id=?"
-	stmt, err := d.h2.DB.Prepare(sql)
+	stmt, err := d.h2.Prepare(sql)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
-	ret, err := stmt.ExecContext(ctx, workerId, workerAddr, time.Now().UnixMilli(), jobInstanceId, taskId)
-	affectCnt, _ := ret.RowsAffected()
-	return affectCnt, err
+	ret, err := stmt.Exec(workerId, workerAddr, time.Now().UnixMilli(), jobInstanceId, taskId)
+	if err != nil {
+		return 0, err
+	}
+	return ret.RowsAffected()
 }
