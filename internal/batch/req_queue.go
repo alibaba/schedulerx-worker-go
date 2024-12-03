@@ -16,20 +16,14 @@
 
 package batch
 
-import (
-	"go.uber.org/atomic"
-)
-
 type ReqQueue struct {
 	maxSize  int32
-	curSize  *atomic.Int32
 	requests chan any
 }
 
 func NewReqQueue(maxSize int32) (q *ReqQueue) {
 	return &ReqQueue{
 		maxSize:  maxSize,
-		curSize:  atomic.NewInt32(0),
 		requests: make(chan any, maxSize),
 	}
 }
@@ -39,7 +33,6 @@ func (q *ReqQueue) SubmitRequest(req any) {
 		return
 	}
 	q.requests <- req
-	q.curSize.Inc()
 }
 
 func (q *ReqQueue) RetrieveRequests(batchSize int32) []any {
@@ -56,10 +49,7 @@ func (q *ReqQueue) RetrieveRequests(batchSize int32) []any {
 
 func (q *ReqQueue) pop() any {
 	select {
-	case req, ok := <-q.requests:
-		if ok {
-			q.curSize.Dec()
-		}
+	case req := <-q.requests:
 		return req
 	default:
 		return nil
@@ -67,9 +57,9 @@ func (q *ReqQueue) pop() any {
 }
 
 func (q *ReqQueue) Size() int {
-	return int(q.curSize.Load())
+	return len(q.requests)
 }
 
 func (q *ReqQueue) Clear() {
-	close(q.requests)
+	q.requests = nil
 }
