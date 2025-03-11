@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shirou/gopsutil/disk"
+	"github.com/shirou/gopsutil/v4/disk"
 	atom "go.uber.org/atomic"
 
 	"github.com/alibaba/schedulerx-worker-go/internal/constants"

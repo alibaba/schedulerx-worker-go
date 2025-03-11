@@ -28,7 +28,7 @@ import (
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
-	"github.com/shirou/gopsutil/load"
+	"github.com/shirou/gopsutil/v4/load"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/alibaba/schedulerx-worker-go/config"
