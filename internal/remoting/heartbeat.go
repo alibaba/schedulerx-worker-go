@@ -21,14 +21,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"runtime"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
+	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/load"
+	"github.com/shirou/gopsutil/v4/mem"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/alibaba/schedulerx-worker-go/config"
@@ -118,32 +120,43 @@ func sendHeartbeat(ctx context.Context, req *schedulerx.WorkerHeartBeatRequest) 
 	return trans.WriteAkkaMsg(akkaMsg, conn)
 }
 
-func getLoadAvg() ([]float64, error) {
-	avg, err := load.Avg()
-	if err != nil {
-		return nil, err
-	}
-	return []float64{avg.Load1, avg.Load5, avg.Load15}, nil
-}
-
 func metricsJsonStr() string {
-	loadAvg, err := getLoadAvg()
+	loadAvg, err := load.Avg()
 	if err != nil {
 		logger.Warnf("Failed to get system load average:" + err.Error())
 		return "{}"
 	}
-	cpus := runtime.NumCPU()
-	memstats := new(runtime.MemStats)
-	runtime.ReadMemStats(memstats)
+
+	cpus, _ := strconv.Atoi(os.Getenv("SIGMA_MAX_PROCESSORS_LIMIT"))
+	if cpus <= 0 {
+		cpus = runtime.NumCPU()
+	}
+
+	ms, err := mem.VirtualMemory()
+	if err != nil {
+		logger.Warnf("Failed to get system mem info:" + err.Error())
+		return "{}"
+	}
 
 	metricsJson := map[string]float64{
-		"cpuLoad1":      loadAvg[0],
-		"cpuLoad5":      loadAvg[1],
+		"cpuLoad1":      loadAvg.Load1,
+		"cpuLoad5":      loadAvg.Load5,
 		"cpuProcessors": float64(cpus),
-		"heap1Usage":    float64(memstats.HeapInuse) / float64(memstats.HeapSys),
-		"heap1Used":     float64(memstats.HeapInuse) / 1024 / 1024,
-		"heap5Usage":    float64(memstats.HeapInuse) / math.Max(float64(memstats.HeapSys), 1),
-		"heapMax":       float64(memstats.HeapSys) / 1024 / 1024,
+		"heap1Usage":    ms.UsedPercent / 100,
+		"heap1Used":     float64(ms.Used) / 1024 / 1024,
+		"heap5Usage":    ms.UsedPercent / 100,
+		"heapMax":       float64(ms.Available+ms.Used) / 1024 / 1024,
+	}
+	diskStat, err := disk.Usage("/")
+	if err != nil {
+		fmt.Println("Failed to get system disk usage info:" + err.Error())
+	} else {
+		diskUsed := diskStat.Used / 1024 / 1024
+		diskFree := diskStat.Free / 1024 / 1024
+		diskMax := float64(diskUsed + diskFree)
+		metricsJson["diskUsed"] = float64(diskUsed)
+		metricsJson["diskMax"] = diskMax
+		metricsJson["diskUsage"] = float64(diskUsed) / diskMax
 	}
 	ret, err := json.Marshal(metricsJson)
 	if err != nil {
