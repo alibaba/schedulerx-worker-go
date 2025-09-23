@@ -135,20 +135,17 @@ func newClient(cfg *Config, opts ...Option) (*Client, error) {
 	openapi.InitOpenAPIClient(openAPIClient)
 	discovery.GetGroupManager().StartServerDiscovery(cfg.GroupId, cfg.AppKey)
 	serverDiscover := discovery.GetDiscovery(cfg.GroupId)
-	getActiveServer := func() string {
-		return serverDiscover.ActiveServer()
-	}
 
 	// Init connection pool
 	dialer := func() (net.Conn, error) {
-		logger.Infof("SchedulerX discovery active server addr=%s", getActiveServer())
-		return net.DialTimeout("tcp", getActiveServer(), time.Millisecond*500)
+		activeServer := serverDiscover.ActiveServer()
+		logger.Infof("SchedulerX discovery active server addr=%s", activeServer)
+		return net.DialTimeout("tcp", activeServer, time.Millisecond*500)
 	}
-	singleConnPool := pool.NewSingleConnPool(ctx, dialer,
+	pool.InitConnPool(ctx, dialer,
 		pool.WithPostDialer(remoting.Handshake),
 		pool.WithAddrChangedSignalCh(serverDiscover.ResultChangedCh()))
-	pool.InitConnPool(singleConnPool)
-	if conn, err := singleConnPool.Get(ctx); err != nil {
+	if conn, err := pool.GetConnPool().Get(ctx); err != nil {
 		return nil, fmt.Errorf("cannot connect schedulerx server, maybe network was broken, err=%s", err.Error())
 	} else {
 		logger.Infof("SchedulerX server connected, remoteAddr=%s, localAddr=%s", conn.RemoteAddr(), conn.LocalAddr().String())

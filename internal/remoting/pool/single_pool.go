@@ -25,23 +25,18 @@ import (
 )
 
 var (
-	_ ConnPool = &singleConnPool{}
-
+	poolOnce sync.Once
 	connPool ConnPool
-	once     sync.Once
-	lock     sync.RWMutex
 )
 
-func InitConnPool(pool ConnPool) {
-	once.Do(func() {
-		connPool = pool
+func InitConnPool(ctx context.Context, dialer func() (net.Conn, error), opts ...Option) {
+	poolOnce.Do(func() {
+		connPool = newSingleConnPool(ctx, dialer, opts...)
 	})
 }
 
 // GetConnPool first executes InitConnPool and then calls it, otherwise it returns nil
 func GetConnPool() ConnPool {
-	lock.RLock()
-	defer lock.RUnlock()
 	return connPool
 }
 
@@ -77,7 +72,7 @@ func WithAddrChangedSignalCh(addrChangedSignalCh chan struct{}) Option {
 	}
 }
 
-func NewSingleConnPool(ctx context.Context, dialer func() (net.Conn, error), opts ...Option) ConnPool {
+func newSingleConnPool(ctx context.Context, dialer func() (net.Conn, error), opts ...Option) ConnPool {
 	options := new(Options)
 	for _, opt := range opts {
 		opt(options)
@@ -101,16 +96,17 @@ func NewSingleConnPool(ctx context.Context, dialer func() (net.Conn, error), opt
 }
 
 func (p *singleConnPool) newConn(ctx context.Context) (net.Conn, error) {
-	p.clean()
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	if p.conn != nil {
+		_ = p.conn.Close()
+	}
 
 	conn, err := p.dialer()
 	if err != nil {
 		return nil, err
 	}
-
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	p.conn = conn
 
 	// handshake success means connection is truly established
 	if postDialer := p.options.postDialer; postDialer != nil {
@@ -118,29 +114,23 @@ func (p *singleConnPool) newConn(ctx context.Context) (net.Conn, error) {
 			return nil, err
 		}
 	}
-
+	p.conn = conn
 	return conn, nil
 }
 
 func (p *singleConnPool) Get(ctx context.Context) (net.Conn, error) {
-	if !p.isConnExisted() {
+	p.lock.RLock()
+	if p.conn == nil {
+		p.lock.RUnlock()
 		// create a new connection if there is no existing connection
 		return p.newConn(ctx)
 	}
-
-	p.lock.RLock()
 	defer p.lock.RUnlock()
 	return p.conn, nil
 }
 
 func (p *singleConnPool) ReconnectTrigger() chan struct{} {
 	return p.reconnectSignalCh
-}
-
-func (p *singleConnPool) isConnExisted() bool {
-	p.lock.RLock()
-	defer p.lock.RUnlock()
-	return p.conn != nil
 }
 
 func (p *singleConnPool) onReconnectTrigger(ctx context.Context) {
@@ -156,14 +146,5 @@ func (p *singleConnPool) onAddrChanged(ctx context.Context) {
 		if _, err := p.newConn(ctx); err != nil {
 			logger.Errorf("Reconnect server failed after addr if changed, err=%s", err.Error())
 		}
-	}
-}
-
-func (p *singleConnPool) clean() {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	if p.conn != nil {
-		_ = p.conn.Close()
-		p.conn = nil
 	}
 }

@@ -60,6 +60,7 @@ func OnMsgReceived(ctx context.Context) {
 			// EADDRNOTAVAIL
 			connpool.ReconnectTrigger() <- struct{}{}
 			logger.Errorf("OnMsgReceived broke pipe, err=%s", err.Error())
+			time.Sleep(100 * time.Millisecond) // maybe network is broken, just wait a moment
 			continue
 		}
 		if n < constants.TransportHeaderSize {
