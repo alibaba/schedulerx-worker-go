@@ -136,6 +136,11 @@ func newClient(cfg *Config, opts ...Option) (*Client, error) {
 	discovery.GetGroupManager().StartServerDiscovery(cfg.GroupId, cfg.AppKey)
 	serverDiscover := discovery.GetDiscovery(cfg.GroupId)
 
+	if activeServer := serverDiscover.ActiveServer(); activeServer == "" {
+		logger.Errorf("cannot get schedulerX discovery active server")
+		return nil, fmt.Errorf("cannot get schedulerX discovery active server")
+	}
+
 	// Init connection pool
 	dialer := func() (net.Conn, error) {
 		activeServer := serverDiscover.ActiveServer()
@@ -156,7 +161,7 @@ func newClient(cfg *Config, opts ...Option) (*Client, error) {
 
 	// Init actors
 	actorSystem := actorcomm.GetActorSystem()
-	if err = sxactor.InitActors(actorSystem); err != nil {
+	if err := sxactor.InitActors(actorSystem); err != nil {
 		return nil, fmt.Errorf("init actors faild, err=%s", err.Error())
 	}
 
