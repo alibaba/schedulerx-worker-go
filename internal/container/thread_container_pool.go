@@ -17,6 +17,7 @@
 package container
 
 import (
+	"math"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -33,6 +34,15 @@ var (
 
 	threadContainerPool *ThreadContainerPool
 	once                sync.Once
+
+	globalPool, _ = ants.NewPool(
+		math.MaxInt32,
+		ants.WithExpiryDuration(30*time.Second),
+		ants.WithPanicHandler(func(i interface{}) {
+			if r := recover(); r != nil {
+				logger.Errorf("Catch panic with PanicHandler in ThreadContainerPool, %v\n%s", r, debug.Stack())
+			}
+		}))
 )
 
 func GetThreadContainerPool() *ThreadContainerPool {
@@ -44,7 +54,6 @@ func GetThreadContainerPool() *ThreadContainerPool {
 
 type ThreadContainerPool struct {
 	*BaseContainerPool
-	threadPoolMap            sync.Map // Map<Long, ExecutorService>
 	enableShareContainerPool bool
 	jobInstanceLockMap       sync.Map // Map<Long, Object>
 	sharedThreadPool         *ants.Pool
@@ -52,7 +61,7 @@ type ThreadContainerPool struct {
 }
 
 func newTreadContainerPool() *ThreadContainerPool {
-	gopool, _ := ants.NewPool(
+	sharedPool, _ := ants.NewPool(
 		int(config.GetWorkerConfig().SharePoolSize()),
 		ants.WithExpiryDuration(30*time.Second),
 		ants.WithPanicHandler(func(i interface{}) {
@@ -62,10 +71,9 @@ func newTreadContainerPool() *ThreadContainerPool {
 		}))
 	return &ThreadContainerPool{
 		BaseContainerPool:        NewBaseContainerPool(),
-		threadPoolMap:            sync.Map{},
 		jobInstanceLockMap:       sync.Map{},
 		enableShareContainerPool: config.GetWorkerConfig().IsShareContainerPool(),
-		sharedThreadPool:         gopool,
+		sharedThreadPool:         sharedPool,
 	}
 }
 
@@ -73,29 +81,10 @@ func (p *ThreadContainerPool) Submit(jobId, jobInstanceId, taskId int64, contain
 	if p.enableShareContainerPool {
 		return p.sharedThreadPool.Submit(container.Start)
 	}
-
-	pool, ok := p.threadPoolMap.Load(jobInstanceId)
-	if !ok {
-		pool, err = ants.NewPool(
-			int(consumerSize),
-			ants.WithExpiryDuration(30*time.Second),
-			ants.WithPanicHandler(func(i interface{}) {
-				if r := recover(); r != nil {
-					logger.Errorf("Catch panic with PanicHandler in ThreadContainerPool, %v\n%s", r, debug.Stack())
-				}
-			}))
-		if err != nil {
-			return err
-		}
-		p.threadPoolMap.Store(jobInstanceId, pool)
-	}
-	return pool.(*ants.Pool).Submit(container.Start)
+	return globalPool.Submit(container.Start)
 }
 
 func (p *ThreadContainerPool) DestroyByInstance(jobInstanceId int64) bool {
-	if val, ok := p.threadPoolMap.LoadAndDelete(jobInstanceId); ok {
-		val.(*ants.Pool).Release()
-	}
 	return true
 }
 
