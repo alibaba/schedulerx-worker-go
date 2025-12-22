@@ -28,6 +28,15 @@ import (
 )
 
 func InitActors(actorSystem *actor.ActorSystem) error {
+	handleReceiveMsg := func(pid *actor.PID, ch chan interface{}) {
+		go func() {
+			for {
+				msg := <-ch
+				actorSystem.Root.Send(pid, msg)
+			}
+		}()
+	}
+
 	// init containerActor
 	containerRouterPid, err := actorSystem.Root.SpawnNamed(actor.PropsFromProducer(func() actor.Actor {
 		return newContainerActor()
@@ -35,6 +44,7 @@ func InitActors(actorSystem *actor.ActorSystem) error {
 	if err != nil {
 		return err
 	}
+	handleReceiveMsg(containerRouterPid, actorcomm.ContainerRouterMsgReceiver())
 
 	// init jobInstanceActor
 	jobInstancePid, err := actorSystem.Root.SpawnNamed(actor.PropsFromProducer(func() actor.Actor {
@@ -43,6 +53,7 @@ func InitActors(actorSystem *actor.ActorSystem) error {
 	if err != nil {
 		return err
 	}
+	handleReceiveMsg(jobInstancePid, actorcomm.SxMsgReceiver())
 
 	// init atLeastOnceDeliveryActor
 	atLeastOnceDeliveryPid, err := actorSystem.Root.SpawnNamed(actor.PropsFromProducer(func() actor.Actor {
@@ -51,6 +62,7 @@ func InitActors(actorSystem *actor.ActorSystem) error {
 	if err != nil {
 		return err
 	}
+	handleReceiveMsg(atLeastOnceDeliveryPid, actorcomm.AtLeastOnceDeliveryMsgReceiver())
 
 	// init taskActor
 	taskActorPid, err := actorSystem.Root.SpawnNamed(actor.PropsFromProducer(func() actor.Actor {
@@ -59,6 +71,7 @@ func InitActors(actorSystem *actor.ActorSystem) error {
 	if err != nil {
 		return err
 	}
+	handleReceiveMsg(taskActorPid, actorcomm.TaskMasterMsgReceiver())
 
 	// init heartbeatActor
 	heartbeatActorPid, err := actorSystem.Root.SpawnNamed(actor.PropsFromProducer(func() actor.Actor {
@@ -67,23 +80,7 @@ func InitActors(actorSystem *actor.ActorSystem) error {
 	if err != nil {
 		return err
 	}
-
-	go func() {
-		for {
-			select {
-			case sxMsg := <-actorcomm.SxMsgReceiver():
-				actorSystem.Root.Send(jobInstancePid, sxMsg)
-			case taskMasterMsg := <-actorcomm.TaskMasterMsgReceiver():
-				actorSystem.Root.Send(taskActorPid, taskMasterMsg)
-			case containerRouterMsg := <-actorcomm.ContainerRouterMsgReceiver():
-				actorSystem.Root.Send(containerRouterPid, containerRouterMsg)
-			case atLeastOnceDeliveryMsg := <-actorcomm.AtLeastOnceDeliveryMsgReceiver():
-				actorSystem.Root.Send(atLeastOnceDeliveryPid, atLeastOnceDeliveryMsg)
-			case heartbeatMsg := <-actorcomm.HeartbeatMsgReceiver():
-				actorSystem.Root.Send(heartbeatActorPid, heartbeatMsg)
-			}
-		}
-	}()
+	handleReceiveMsg(heartbeatActorPid, actorcomm.HeartbeatMsgReceiver())
 
 	var (
 		host = "0.0.0.0"
