@@ -3,7 +3,7 @@
  */
 
 syntax = "proto2";
-
+package schedulerx_worker.internal.proto;
 option go_package = "./akka";
 option optimize_for = SPEED;
 

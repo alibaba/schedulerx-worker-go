@@ -1,5 +1,5 @@
 syntax = "proto2";
-
+package schedulerx_worker.internal.proto;
 option go_package = "./schedulerx";
 
 message UpstreamData {
