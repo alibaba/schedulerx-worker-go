@@ -197,25 +197,25 @@ func (m *TaskMaster) BatchUpdateTaskStatus(taskMaster taskmaster.TaskMaster, req
 
 		switch taskMaster.(type) {
 		case *BroadcastTaskMaster:
-			if err := taskMaster.(*BroadcastTaskMaster).UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
+			if err := taskMaster.UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
 				if err != nil {
 					return fmt.Errorf("BroadcastTaskMaster UpdateTaskStatus failed, err=%s ", err.Error())
 				}
 			}
 		case *BatchTaskMaster:
-			if err := taskMaster.(*BatchTaskMaster).UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
+			if err := taskMaster.UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
 				if err != nil {
 					return fmt.Errorf("BatchTaskMaster UpdateTaskStatus failed, err=%s ", err.Error())
 				}
 			}
 		case *GridTaskMaster:
-			if err := taskMaster.(*GridTaskMaster).UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
+			if err := taskMaster.UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
 				if err != nil {
 					return fmt.Errorf("GridTaskMaster UpdateTaskStatus failed, err=%s ", err.Error())
 				}
 			}
 		case *MapTaskMaster:
-			if err := taskMaster.(*MapTaskMaster).UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
+			if err := taskMaster.UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
 				if err != nil {
 					return fmt.Errorf("MapTaskMaster UpdateTaskStatus failed, err=%s ", err.Error())
 				}

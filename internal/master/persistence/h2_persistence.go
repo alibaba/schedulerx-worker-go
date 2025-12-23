@@ -134,7 +134,7 @@ func (rcvr *H2Persistence) CreateTasks(containers []*schedulerx.MasterStartConta
 		break
 	}
 	if !succeed {
-		return fmt.Errorf(fmt.Sprintf("batch insert tasks error, workerId=%s, workerAddr=%s", workerId, workerAddr))
+		return fmt.Errorf("batch insert tasks error, workerId=%s, workerAddr=%s", workerId, workerAddr)
 	}
 	return nil
 }

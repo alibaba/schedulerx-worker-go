@@ -182,7 +182,6 @@ func (m *BroadcastTaskMaster) dispatchTask(jobInstanceInfo *common.JobInstanceIn
 			continue
 		}
 	}
-	return
 }
 
 func (m *BroadcastTaskMaster) KillInstance(reason string) error {
@@ -249,7 +248,7 @@ func (m *BroadcastTaskMaster) UpdateTaskStatus(request *schedulerx.ContainerRepo
 		taskStatus = taskstatus.TaskStatus(request.GetStatus())
 		uniqueId   = utils.GetUniqueId(jobId, jobInstanceId, taskId)
 	)
-	logger.Infof("update task status serialNum=%v, uniqueId=%v, status=%v, workerAddr=%v", request.GetSerialNum(), uniqueId, taskStatus.Descriptor(), workerAddr)
+	logger.Infof("update task status serialNum=%d, uniqueId=%s, status=%s, workerAddr=%s", request.GetSerialNum(), uniqueId, taskStatus.Descriptor(), workerAddr)
 	if val, ok := m.taskStatusMap.Load(uniqueId); ok {
 		if val.(taskstatus.TaskStatus) == taskStatus {
 			logger.Warnf("duplicated ContainerReportTaskStatusRequest, uniqueId=%v, taskStatus=%v", uniqueId, taskStatus)

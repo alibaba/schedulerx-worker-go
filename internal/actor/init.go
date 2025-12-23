@@ -82,10 +82,8 @@ func InitActors(actorSystem *actor.ActorSystem) error {
 	}
 	handleReceiveMsg(heartbeatActorPid, actorcomm.HeartbeatMsgReceiver())
 
-	var (
-		host = "0.0.0.0"
-		port = 0 // random port
-	)
+	var host string
+	var port int // random port
 	if grpcPort := config.GetWorkerConfig().GrpcPort(); grpcPort != 0 {
 		port = int(grpcPort)
 	}

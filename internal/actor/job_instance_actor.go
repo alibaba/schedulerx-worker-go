@@ -289,7 +289,7 @@ func (a *jobInstanceActor) handleRetryTasks(actorCtx actor.Context, msg *actorco
 		case common.GridExecuteMode:
 			newTaskMaster = master.NewGridTaskMaster(jobInstanceInfo, actorCtx)
 		case common.ShardingExecuteMode:
-			taskMaster = master.NewShardingTaskMaster(jobInstanceInfo, actorCtx)
+			newTaskMaster = master.NewShardingTaskMaster(jobInstanceInfo, actorCtx)
 		default:
 			logger.Errorf("handleRetryTasks failed, jobInstanceId=%d, unknown executeMode=%s", jobInstanceInfo.GetExecuteMode())
 		}

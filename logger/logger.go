@@ -150,10 +150,9 @@ func SetLogLevel(level string) {
 }
 
 func SetOutputPath(path string) (err error) {
-	if "" == path {
+	if path == "" {
 		return
 	}
-
 	return rLog.OutputPath(path)
 }
 

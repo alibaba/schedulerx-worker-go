@@ -19,6 +19,7 @@ package master
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -64,15 +65,15 @@ func (m *ShardingTaskMaster) SubmitInstance(ctx context.Context, jobInstanceInfo
 	for _, param := range m.parameters {
 		tokens := strings.Split(param, "=")
 		if len(tokens) != 2 {
-			errMsg := fmt.Sprintf("invalid sharding parameters, should be like 0=a,1=b,2=c")
+			errMsg := "invalid sharding parameters, should be like 0=a,1=b,2=c"
 			m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, errMsg)
-			return fmt.Errorf(errMsg)
+			return errors.New(errMsg)
 		}
 		shardingId, err := strconv.Atoi(tokens[0])
 		if err != nil {
 			errMsg := fmt.Sprintf("invalid sharding parameters, shardingId is not digit, shardingId=%s", tokens[0])
 			m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, errMsg)
-			return fmt.Errorf(errMsg)
+			return errors.New(errMsg)
 		}
 		taskName := tokens[0] // taskName == shardingId
 		shardingParameter := tokens[1]
