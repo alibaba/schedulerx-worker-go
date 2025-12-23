@@ -54,7 +54,7 @@ func GetThreadContainerPool() *ThreadContainerPool {
 
 type ThreadContainerPool struct {
 	containerMap       *sync.Map // map[string]Container
-	jobInstanceLockMap *sync.Map // map[int64]*sync.Mutex
+	jobInstanceLockMap *sync.Map // map[int64]*JobInstanceLock
 	jobCtx             *jobcontext.JobContext
 }
 

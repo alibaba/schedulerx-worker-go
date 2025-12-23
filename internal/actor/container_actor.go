@@ -199,8 +199,6 @@ func (a *containerActor) handleKillContainer(actorCtx actor.Context, req *schedu
 }
 
 func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req *schedulerx.MasterDestroyContainerPoolRequest) {
-	//		handler, ok := a.statusReqBatchHandlerPool.GetHandlers().Load(req.GetJobInstanceId())
-	//		if ok {
 	logger.Infof("handleDestroyContainerPool from jobInstanceId=%v.", req.GetJobInstanceId())
 
 	jobInstanceLock := a.containerPool.GetInstanceLock(req.GetJobInstanceId(), 0)
@@ -212,26 +210,21 @@ func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req 
 		return
 	}
 
+	handler, ok := a.statusReqBatchHandlerPool.GetHandlers().Load(req.GetJobInstanceId())
+	if ok && req.GetSerialNum() > 0 {
+		if h, ok := handler.(*batch.ContainerStatusReqHandler); ok && h.GetLatestRequest() != nil {
+			r, ok := h.GetLatestRequest().(*schedulerx.ContainerReportTaskStatusRequest)
+			if ok && req.GetSerialNum() != r.GetSerialNum() {
+				logger.Infof("skip handleDestroyContainerPool cycleId=%d_%d, handler serialNum=%d.",
+					req.GetJobInstanceId(), req.GetSerialNum(), r.GetSerialNum())
+				return
+			}
+			logger.Infof("handleDestroyContainerPool from cycleId=%d_%d, handler serialNum=%d.",
+				req.GetJobInstanceId(), req.GetSerialNum(), r.GetSerialNum())
+		}
+	}
 	a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
 	a.containerPool.DestroyByInstance(req.GetJobInstanceId())
-	/*
-		if h, ok := handler.(*batch.ContainerStatusReqHandler); ok {
-
-				if latestRequest := h.GetLatestRequest(); latestRequest != nil {
-					reportTaskStatusRequest, ok := latestRequest.(*schedulerx.ContainerReportTaskStatusRequest)
-					if ok {
-						if reportTaskStatusRequest.GetSerialNum() != req.GetSerialNum() {
-							logger.Infof("skip handleDestroyContainerPool cycleId=%v_%v, handler serialNum=%v.", req.GetJobInstanceId(), req.GetSerialNum(), reportTaskStatusRequest.GetSerialNum())
-							return
-						}
-						logger.Infof("handleDestroyContainerPool from cycleId=%v_%v, handler serialNum=%v.", req.GetJobInstanceId(), req.GetSerialNum(), reportTaskStatusRequest.GetSerialNum())
-						a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
-						a.containerPool.DestroyByInstance(req.GetJobInstanceId())
-					}
-				}
-		}
-	*/
-	//		}
 
 	if senderPid := actorCtx.Sender(); senderPid != nil {
 		response := &schedulerx.MasterDestroyContainerPoolResponse{
