@@ -27,17 +27,15 @@ type Container interface {
 	Kill()
 }
 
-type ContainerPool interface {
-	Contain(uniqueId string) bool
+type Pool interface {
+	GetContainerMap() *sync.Map // map[string]Container
+	Submit(jobId int64, jobInstanceId int64, taskId int64, container Container) error
 	DestroyByInstance(jobInstanceId int64) bool
 	Get(uniqueId string) Container
-	GetContainerMap() *sync.Map // map[string]Container
-	GetContext() *jobcontext.JobContext
-	GetInstanceLock(jobInstanceId int64) interface{}
 	Put(uniqueId string, container Container)
-	ReleaseInstanceLock(jobInstanceId int64)
+	Contain(uniqueId string) bool
 	Remove(uniqueId string)
-	RemoveContext()
+	GetContext() *jobcontext.JobContext
 	SetContext(jobContext *jobcontext.JobContext)
-	Submit(jobId int64, jobInstanceId int64, taskId int64, container Container, consumerSize int32) error
+	RemoveContext()
 }

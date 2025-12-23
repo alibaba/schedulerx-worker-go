@@ -44,11 +44,11 @@ type ThreadContainer struct {
 	jobCtx        *jobcontext.JobContext
 	actorCtx      actor.Context
 	jobProcessor  processor.Processor
-	containerPool ContainerPool
+	containerPool Pool
 	masterPid     *actor.PID
 }
 
-func NewThreadContainer(jobCtx *jobcontext.JobContext, actorCtx actor.Context, containerPool ContainerPool) (*ThreadContainer, error) {
+func NewThreadContainer(jobCtx *jobcontext.JobContext, actorCtx actor.Context) (*ThreadContainer, error) {
 	if jobCtx.InstanceMasterActorPath() == "" {
 		return nil, fmt.Errorf("get taskMaster akka path error, path=" + jobCtx.InstanceMasterActorPath())
 	}
@@ -56,7 +56,7 @@ func NewThreadContainer(jobCtx *jobcontext.JobContext, actorCtx actor.Context, c
 	return &ThreadContainer{
 		jobCtx:        jobCtx,
 		actorCtx:      actorCtx,
-		containerPool: containerPool,
+		containerPool: GetThreadContainerPool(),
 		masterPid:     actorcomm.GetMapMasterPid(workerAddr),
 	}, nil
 }
