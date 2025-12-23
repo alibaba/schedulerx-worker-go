@@ -34,7 +34,7 @@ func NewTMStatusReqHandler(jobInstanceId int64, coreBatchThreadNum int, maxBatch
 	rcvr = new(TMStatusReqHandler)
 	rcvr.BaseReqHandler = NewBaseReqHandler(jobInstanceId, coreBatchThreadNum, maxBatchThreadNum, batchSize, queue,
 		"TM-Batch-Statuses-Process", "TM-Batch-Statues-Retrieve")
-	rcvr.BaseReqHandler.defaultSleepMs = 100 * time.Millisecond
+	rcvr.defaultSleepMs = 100 * time.Millisecond
 	return rcvr
 }
 

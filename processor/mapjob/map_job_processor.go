@@ -204,7 +204,7 @@ func (rcvr *MapJobProcessor) Map(jobCtx *jobcontext.JobContext, taskList []inter
 			ret  interface{}
 
 			retryCount = 0
-			ok         = false
+			ok         bool
 		)
 
 		taskMaster := rcvr.taskMasterPool.Get(req.GetJobInstanceId())

@@ -82,7 +82,7 @@ func GetRealWorkerAddr(workerIdAddr string) string {
 	// Note: akka_port is used for akka communication between master and server, rpc_port is used for actorSystem communication between master and worker.
 	// Old format (compatible): host:akka_port
 	// New format: host:akka_port:rpc_port
-	if !(len(addrParts) == 2 || len(addrParts) == 3) {
+	if len(addrParts) != 2 && len(addrParts) != 3 {
 		panic(fmt.Sprintf("invalid worker addr: %s", workerAddr))
 	}
 

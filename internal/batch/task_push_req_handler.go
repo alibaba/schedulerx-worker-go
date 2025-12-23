@@ -35,7 +35,7 @@ func NewTaskPushReqHandler(jobInstanceId int64, coreBatchThreadNum int, maxBatch
 	h := new(TaskPushReqHandler)
 	h.BaseTaskDispatchReqHandler = NewBaseTaskDispatchReqHandler(jobInstanceId, coreBatchThreadNum, maxBatchThreadNum, batchSize, queue,
 		"Schedulerx-Batch-Tasks-Dispatch-Thread", "Schedulerx-Batch-Tasks-Retrieve-Thread")
-	h.BaseReqHandler.defaultSleepMs = 100 * time.Millisecond
+	h.defaultSleepMs = 100 * time.Millisecond
 	h.dispatchSize = dispatchSize
 	return h
 }

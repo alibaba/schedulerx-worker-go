@@ -18,6 +18,7 @@ package persistence
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -131,7 +132,7 @@ func (rcvr *ServerTaskPersistence) ClearTasks(jobInstanceId int64) error {
 		} else {
 			errMsg := fmt.Sprintf("clear tasks of jobInstance[%d] failed, error=%s", jobInstanceId, resp.GetMessage())
 			logger.Errorf(errMsg)
-			return fmt.Errorf(errMsg)
+			return errors.New(errMsg)
 		}
 	case <-timer.C:
 		logger.Errorf("ClearTasks of JobInstanceId=%d in ServerTaskPersistence timeout", jobInstanceId)
@@ -205,7 +206,7 @@ func (rcvr *ServerTaskPersistence) CreateTasks(containers []*schedulerx.MasterSt
 		} else {
 			errMsg := fmt.Sprintf("batch create tasks error, JobInstanceId=%d, reason=%s.", jobInstanceId, resp.GetMessage())
 			logger.Errorf(errMsg)
-			return fmt.Errorf(errMsg)
+			return errors.New(errMsg)
 		}
 	case <-timer.C:
 		logger.Errorf("ClearTasks of JobInstanceId=%d in ServerTaskPersistence timeout", jobInstanceId)

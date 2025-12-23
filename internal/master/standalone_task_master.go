@@ -85,7 +85,9 @@ func (m *StandaloneTaskMaster) SubmitInstance(ctx context.Context, jobInstanceIn
 		uniqueId string
 		taskId   int64
 
-		workerId   = utils.GetWorkerId()
+		workerId = utils.GetWorkerId()
+		// protoactor-go localAddress = "nonhost"
+		// so "nonhost" means localhost
 		workerAddr = m.GetCurrentSelection()
 	)
 	defer func() {
@@ -169,7 +171,7 @@ func (m *StandaloneTaskMaster) KillInstance(reason string) error {
 
 	response, err := m.actorContext.RequestFuture(actorcomm.GetContainerRouterPid(m.currentSelection), req, 10*time.Second).Result()
 	if err != nil {
-		return fmt.Errorf("send kill instance request exception, workerAddr=%v, uninqueId=%v, err=%s", m.currentSelection, uniqueId, err.Error())
+		return fmt.Errorf("send kill instance request exception, workerAddr=%s, uniqueId=%s, err=%s", m.currentSelection, uniqueId, err.Error())
 	}
 	resp, ok := response.(*schedulerx.MasterKillContainerResponse)
 	if !ok {

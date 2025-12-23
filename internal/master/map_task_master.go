@@ -644,7 +644,7 @@ func (m *MapTaskMaster) batchHandlePersistence(workerId, workerAddr string, reqs
 	if !isFailover {
 		// first dispatch
 		if err := m.taskPersistence.CreateTasks(reqs, workerId, workerAddr); err != nil {
-			logger.Errorf("Batch persistence tasks to DB by CreateTasks failed, err=%s, reqs len=%d, workerId=%v, workerAddr=%v", err.Error(), len(reqs), workerId, workerAddr)
+			logger.Errorf("Batch persistence tasks to DB by CreateTasks failed, err=%s, reqs len=%d, workerId=%s, workerAddr=%s", err.Error(), len(reqs), workerId, workerAddr)
 		}
 	} else {
 		// failover, not first dispatch
@@ -654,7 +654,7 @@ func (m *MapTaskMaster) batchHandlePersistence(workerId, workerAddr string, reqs
 		}
 		_, err := m.taskPersistence.UpdateTaskStatus(m.GetJobInstanceInfo().GetJobInstanceId(), taskIds, taskstatus.TaskStatusRunning, workerId, workerAddr)
 		if err != nil {
-			logger.Errorf("Batch persistence tasks to DB by UpdateTaskStatus failed, err=%s, jobInstanceId=%d, tasks len=%d, workerId=%v, workerAddr=%v", err.Error(), m.GetJobInstanceInfo().GetJobInstanceId(), len(taskIds), workerId, workerAddr)
+			logger.Errorf("Batch persistence tasks to DB by UpdateTaskStatus failed, err=%s, jobInstanceId=%d, tasks len=%d, workerId=%s, workerAddr=%s", err.Error(), m.GetJobInstanceInfo().GetJobInstanceId(), len(taskIds), workerId, workerAddr)
 		}
 	}
 	logger.Debugf("jobInstance=%d, batch dispatch db cost:%dms, size:%d", m.GetJobInstanceInfo().GetJobInstanceId(), time.Since(startTime).Milliseconds(), len(reqs))
