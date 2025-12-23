@@ -202,6 +202,16 @@ func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req 
 	//		handler, ok := a.statusReqBatchHandlerPool.GetHandlers().Load(req.GetJobInstanceId())
 	//		if ok {
 	logger.Infof("handleDestroyContainerPool from jobInstanceId=%v.", req.GetJobInstanceId())
+
+	jobInstanceLock := a.containerPool.GetInstanceLock(req.GetJobInstanceId(), 0)
+	jobInstanceLock.Lock()
+	defer jobInstanceLock.Unlock()
+	if req.GetSerialNum() > 0 && req.GetSerialNum() != jobInstanceLock.SerialNum.Load() {
+		logger.Infof("skip handleDestroyContainerPool cycleId=%d_%d, lock serialNum=%d.", req.GetJobInstanceId(),
+			req.GetSerialNum(), jobInstanceLock.SerialNum.Load())
+		return
+	}
+
 	a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
 	a.containerPool.DestroyByInstance(req.GetJobInstanceId())
 	/*
@@ -233,7 +243,7 @@ func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req 
 		logger.Warnf("Cannot send MasterDestroyContainerPoolResponse due to sender is unknown in handleDestroyContainerPool of containerActor, request=%+v", req)
 	}
 
-	//	a.containerPool.ReleaseInstanceLock(req.GetJobInstanceId())
+	a.containerPool.ReleaseInstanceLock(req.GetJobInstanceId())
 }
 
 func (a *containerActor) killInstance(jobId, jobInstanceId int64) {
@@ -264,6 +274,11 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 	if err != nil {
 		return "", err
 	}
+
+	jobInstanceLock := a.containerPool.GetInstanceLock(req.GetJobInstanceId(), req.GetSerialNum())
+	jobInstanceLock.Lock()
+	defer jobInstanceLock.Unlock()
+
 	a.containerPool.Put(uniqueId, tc)
 	statusReqBatchHandlerKey := req.GetJobInstanceId()
 	if !a.statusReqBatchHandlerPool.Contains(statusReqBatchHandlerKey) {
