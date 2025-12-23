@@ -17,76 +17,91 @@
 package container
 
 import (
+	"math"
+	"runtime/debug"
 	"sync"
+	"time"
 
+	"github.com/panjf2000/ants/v2"
+
+	"github.com/alibaba/schedulerx-worker-go/logger"
 	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
 )
 
-var _ ContainerPool = &BaseContainerPool{}
+var (
+	_ Pool = &ThreadContainerPool{}
 
-type BaseContainerPool struct {
-	containerMap *sync.Map // map[string]Container
+	threadContainerPool *ThreadContainerPool
+	once                sync.Once
+
+	globalPool, _ = ants.NewPool(
+		math.MaxInt32,
+		ants.WithExpiryDuration(30*time.Second),
+		ants.WithPanicHandler(func(i interface{}) {
+			if r := recover(); r != nil {
+				logger.Errorf("Catch panic with PanicHandler in ThreadContainerPool, %v\n%s", r, debug.Stack())
+			}
+		}))
+)
+
+func GetThreadContainerPool() *ThreadContainerPool {
+	once.Do(func() {
+		threadContainerPool = newTreadContainerPool()
+	})
+	return threadContainerPool
 }
 
-func NewBaseContainerPool() *BaseContainerPool {
-	return &BaseContainerPool{
+type ThreadContainerPool struct {
+	containerMap *sync.Map // map[string]Container
+	jobCtx       *jobcontext.JobContext
+}
+
+func newTreadContainerPool() *ThreadContainerPool {
+	return &ThreadContainerPool{
 		containerMap: new(sync.Map),
 	}
 }
 
-func (b *BaseContainerPool) Contain(uniqueId string) bool {
-	_, ok := b.containerMap.Load(uniqueId)
-	return ok
+func (p *ThreadContainerPool) GetContainerMap() *sync.Map {
+	return p.containerMap
 }
 
-func (b *BaseContainerPool) DestroyByInstance(jobInstanceId int64) bool {
-	//TODO implement me
-	panic("implement me")
+func (p *ThreadContainerPool) Submit(jobId, jobInstanceId, taskId int64, container Container) (err error) {
+	// in go, it has been simplified into a global pool
+	return globalPool.Submit(container.Start)
 }
 
-func (b *BaseContainerPool) Get(uniqueId string) Container {
-	ret, _ := b.containerMap.Load(uniqueId)
+func (p *ThreadContainerPool) DestroyByInstance(jobInstanceId int64) bool {
+	// in go, it has been simplified into a global pool and does not need to be destroyed
+	return true
+}
+
+func (p *ThreadContainerPool) Get(uniqueId string) Container {
+	ret, _ := p.containerMap.Load(uniqueId)
 	return ret.(Container)
 }
 
-func (b *BaseContainerPool) GetContainerMap() *sync.Map {
-	return b.containerMap
+func (p *ThreadContainerPool) Put(uniqueId string, container Container) {
+	p.containerMap.Store(uniqueId, container)
 }
 
-func (b *BaseContainerPool) GetContext() *jobcontext.JobContext {
-	//TODO implement me
-	panic("implement me")
+func (p *ThreadContainerPool) Contain(uniqueId string) bool {
+	_, ok := p.containerMap.Load(uniqueId)
+	return ok
 }
 
-func (b *BaseContainerPool) GetInstanceLock(jobInstanceId int64) interface{} {
-	//TODO implement me
-	panic("implement me")
+func (p *ThreadContainerPool) Remove(uniqueId string) {
+	p.containerMap.Delete(uniqueId)
 }
 
-func (b *BaseContainerPool) Put(uniqueId string, container Container) {
-	b.containerMap.Store(uniqueId, container)
+func (p *ThreadContainerPool) GetContext() *jobcontext.JobContext {
+	return p.jobCtx
 }
 
-func (b *BaseContainerPool) ReleaseInstanceLock(jobInstanceId int64) {
-	//TODO implement me
-	panic("implement me")
+func (p *ThreadContainerPool) SetContext(jobContext *jobcontext.JobContext) {
+	p.jobCtx = jobContext
 }
 
-func (b *BaseContainerPool) Remove(uniqueId string) {
-	b.containerMap.Delete(uniqueId)
-}
-
-func (b *BaseContainerPool) RemoveContext() {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (b *BaseContainerPool) SetContext(jobContext *jobcontext.JobContext) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (b *BaseContainerPool) Submit(jobId int64, jobInstanceId int64, taskId int64, container Container, consumerSize int32) error {
-	//TODO implement me
-	panic("implement me")
+func (p *ThreadContainerPool) RemoveContext() {
+	p.jobCtx = nil
 }

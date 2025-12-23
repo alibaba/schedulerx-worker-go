@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"runtime/debug"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
@@ -32,7 +31,6 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/config"
 	"github.com/alibaba/schedulerx-worker-go/internal/batch"
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
-	"github.com/alibaba/schedulerx-worker-go/internal/constants"
 	"github.com/alibaba/schedulerx-worker-go/internal/container"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
@@ -42,6 +40,7 @@ import (
 )
 
 var _ actor.Actor = &containerActor{}
+
 var defaultActorPool, _ = ants.NewPool(
 	ants.DefaultAntsPoolSize,
 	ants.WithPanicHandler(func(i interface{}) {
@@ -51,22 +50,18 @@ var defaultActorPool, _ = ants.NewPool(
 	}))
 
 type containerActor struct {
-	enableShareContainerPool  bool
-	containerPool             container.ContainerPool
+	containerPool             container.Pool
 	statusReqBatchHandlerPool *batch.ContainerStatusReqHandlerPool
 	batchSize                 int32
 	containerStarter          *ants.Pool
-	lock                      sync.Mutex
 }
 
 func newContainerActor() *containerActor {
 	return &containerActor{
-		enableShareContainerPool:  config.GetWorkerConfig().IsShareContainerPool(),
 		batchSize:                 config.GetWorkerConfig().WorkerMapPageSize(),
 		statusReqBatchHandlerPool: batch.GetContainerStatusReqHandlerPool(),
 		containerPool:             container.GetThreadContainerPool(),
 		containerStarter:          defaultActorPool,
-		lock:                      sync.Mutex{},
 	}
 }
 
@@ -204,33 +199,29 @@ func (a *containerActor) handleKillContainer(actorCtx actor.Context, req *schedu
 }
 
 func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req *schedulerx.MasterDestroyContainerPoolRequest) {
-	if !a.enableShareContainerPool {
-		//		handler, ok := a.statusReqBatchHandlerPool.GetHandlers().Load(req.GetJobInstanceId())
-		//		if ok {
-		a.lock.Lock()
-		defer a.lock.Unlock()
-		logger.Infof("handleDestroyContainerPool from jobInstanceId=%v.", req.GetJobInstanceId())
-		a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
-		a.containerPool.DestroyByInstance(req.GetJobInstanceId())
-		/*
-			if h, ok := handler.(*batch.ContainerStatusReqHandler); ok {
+	//		handler, ok := a.statusReqBatchHandlerPool.GetHandlers().Load(req.GetJobInstanceId())
+	//		if ok {
+	logger.Infof("handleDestroyContainerPool from jobInstanceId=%v.", req.GetJobInstanceId())
+	a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
+	a.containerPool.DestroyByInstance(req.GetJobInstanceId())
+	/*
+		if h, ok := handler.(*batch.ContainerStatusReqHandler); ok {
 
-					if latestRequest := h.GetLatestRequest(); latestRequest != nil {
-						reportTaskStatusRequest, ok := latestRequest.(*schedulerx.ContainerReportTaskStatusRequest)
-						if ok {
-							if reportTaskStatusRequest.GetSerialNum() != req.GetSerialNum() {
-								logger.Infof("skip handleDestroyContainerPool cycleId=%v_%v, handler serialNum=%v.", req.GetJobInstanceId(), req.GetSerialNum(), reportTaskStatusRequest.GetSerialNum())
-								return
-							}
-							logger.Infof("handleDestroyContainerPool from cycleId=%v_%v, handler serialNum=%v.", req.GetJobInstanceId(), req.GetSerialNum(), reportTaskStatusRequest.GetSerialNum())
-							a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
-							a.containerPool.DestroyByInstance(req.GetJobInstanceId())
+				if latestRequest := h.GetLatestRequest(); latestRequest != nil {
+					reportTaskStatusRequest, ok := latestRequest.(*schedulerx.ContainerReportTaskStatusRequest)
+					if ok {
+						if reportTaskStatusRequest.GetSerialNum() != req.GetSerialNum() {
+							logger.Infof("skip handleDestroyContainerPool cycleId=%v_%v, handler serialNum=%v.", req.GetJobInstanceId(), req.GetSerialNum(), reportTaskStatusRequest.GetSerialNum())
+							return
 						}
+						logger.Infof("handleDestroyContainerPool from cycleId=%v_%v, handler serialNum=%v.", req.GetJobInstanceId(), req.GetSerialNum(), reportTaskStatusRequest.GetSerialNum())
+						a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
+						a.containerPool.DestroyByInstance(req.GetJobInstanceId())
 					}
-			}
-		*/
-		//		}
-	}
+				}
+		}
+	*/
+	//		}
 
 	if senderPid := actorCtx.Sender(); senderPid != nil {
 		response := &schedulerx.MasterDestroyContainerPoolResponse{
@@ -249,21 +240,16 @@ func (a *containerActor) killInstance(jobId, jobInstanceId int64) {
 	containerMap := a.containerPool.GetContainerMap()
 	prefixKey := fmt.Sprintf("%d%s%d", jobId, utils.SplitterToken, jobInstanceId)
 	a.containerPool.GetContainerMap().Range(func(key, value any) bool {
-		var (
-			uniqueId  = key.(string)
-			container = value.(container.Container)
-		)
+		uniqueId := key.(string)
 		if strings.HasPrefix(uniqueId, prefixKey) {
-			container.Kill()
+			c := value.(container.Container)
+			c.Kill()
 			containerMap.Delete(uniqueId)
 			a.statusReqBatchHandlerPool.Stop(jobInstanceId)
 		}
 		return true
 	})
-
-	if !a.enableShareContainerPool {
-		a.containerPool.DestroyByInstance(jobInstanceId)
-	}
+	a.containerPool.DestroyByInstance(jobInstanceId)
 }
 
 func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.MasterStartContainerRequest) (string, error) {
@@ -274,37 +260,24 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 	if err != nil {
 		return "", err
 	}
-	container, err := container.NewThreadContainer(jobCtx, actorCtx, container.GetThreadContainerPool())
+	tc, err := container.NewThreadContainer(jobCtx, actorCtx)
 	if err != nil {
 		return "", err
 	}
-	if container != nil {
-		a.lock.Lock()
-		defer a.lock.Unlock()
-		a.containerPool.Put(uniqueId, container)
-		// Whether to share containerPool. If shared, statusReqBatchHandlerPool has only one handler with key=0.
-		statusReqBatchHandlerKey := int64(0)
-		if !a.enableShareContainerPool {
-			statusReqBatchHandlerKey = req.GetJobInstanceId()
-		}
-		if !a.statusReqBatchHandlerPool.Contains(statusReqBatchHandlerKey) {
-			// support 1.5 million requests
-			reqQueue := batch.NewReqQueue(config.GetWorkerConfig().QueueSize())
-			a.statusReqBatchHandlerPool.Start(
-				statusReqBatchHandlerKey,
-				batch.NewContainerStatusReqHandler(statusReqBatchHandlerKey, 1, 1,
-					a.batchSize, reqQueue, req.GetInstanceMasterAkkaPath()),
-			)
-		}
-		consumerNum := int32(constants.ConsumerNumDefault)
-		if req.GetConsumerNum() > 0 {
-			consumerNum = req.GetConsumerNum()
-		}
-		if err = a.containerPool.Submit(req.GetJobId(), req.GetJobInstanceId(), req.GetTaskId(), container, consumerNum); err != nil {
-			return "", err
-		}
-	} else {
-		logger.Warnf("Container is null, uniqueId=%d", uniqueId)
+	a.containerPool.Put(uniqueId, tc)
+	statusReqBatchHandlerKey := req.GetJobInstanceId()
+	if !a.statusReqBatchHandlerPool.Contains(statusReqBatchHandlerKey) {
+		// support 1.5 million requests
+		reqQueue := batch.NewReqQueue(config.GetWorkerConfig().QueueSize())
+		a.statusReqBatchHandlerPool.Start(
+			statusReqBatchHandlerKey,
+			batch.NewContainerStatusReqHandler(statusReqBatchHandlerKey, 1, 1,
+				a.batchSize, reqQueue, req.GetInstanceMasterAkkaPath()),
+		)
+	}
+
+	if err = a.containerPool.Submit(req.GetJobId(), req.GetJobInstanceId(), req.GetTaskId(), tc); err != nil {
+		return "", err
 	}
 	return uniqueId, nil
 }
