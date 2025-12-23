@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/panjf2000/ants/v2"
+	"go.uber.org/atomic"
 
 	"github.com/alibaba/schedulerx-worker-go/logger"
 	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
@@ -52,13 +53,15 @@ func GetThreadContainerPool() *ThreadContainerPool {
 }
 
 type ThreadContainerPool struct {
-	containerMap *sync.Map // map[string]Container
-	jobCtx       *jobcontext.JobContext
+	containerMap       *sync.Map // map[string]Container
+	jobInstanceLockMap *sync.Map // map[int64]*sync.Mutex
+	jobCtx             *jobcontext.JobContext
 }
 
 func newTreadContainerPool() *ThreadContainerPool {
 	return &ThreadContainerPool{
-		containerMap: new(sync.Map),
+		containerMap:       new(sync.Map),
+		jobInstanceLockMap: new(sync.Map),
 	}
 }
 
@@ -92,6 +95,22 @@ func (p *ThreadContainerPool) Contain(uniqueId string) bool {
 
 func (p *ThreadContainerPool) Remove(uniqueId string) {
 	p.containerMap.Delete(uniqueId)
+}
+
+func (p *ThreadContainerPool) GetInstanceLock(jobInstanceId, serialNum int64) *JobInstanceLock {
+	lock, loaded := p.jobInstanceLockMap.LoadOrStore(jobInstanceId, &JobInstanceLock{
+		Mutex:     new(sync.Mutex),
+		SerialNum: atomic.NewInt64(serialNum),
+	})
+	jobInstanceLock := lock.(*JobInstanceLock)
+	if loaded && serialNum > 0 {
+		jobInstanceLock.SerialNum.Store(serialNum)
+	}
+	return jobInstanceLock
+}
+
+func (p *ThreadContainerPool) ReleaseInstanceLock(jobInstanceId int64) {
+	p.jobInstanceLockMap.Delete(jobInstanceId)
 }
 
 func (p *ThreadContainerPool) GetContext() *jobcontext.JobContext {
