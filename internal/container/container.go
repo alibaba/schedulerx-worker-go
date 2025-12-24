@@ -19,6 +19,8 @@ package container
 import (
 	"sync"
 
+	atom "go.uber.org/atomic"
+
 	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
 )
 
@@ -27,10 +29,17 @@ type Container interface {
 	Kill()
 }
 
+type JobInstanceLock struct {
+	*sync.Mutex
+	SerialNum *atom.Int64
+}
+
 type Pool interface {
 	GetContainerMap() *sync.Map // map[string]Container
 	Submit(jobId int64, jobInstanceId int64, taskId int64, container Container) error
 	DestroyByInstance(jobInstanceId int64) bool
+	GetInstanceLock(jobInstanceId, serialNum int64) *JobInstanceLock
+	ReleaseInstanceLock(jobInstanceId int64)
 	Get(uniqueId string) Container
 	Put(uniqueId string, container Container)
 	Contain(uniqueId string) bool

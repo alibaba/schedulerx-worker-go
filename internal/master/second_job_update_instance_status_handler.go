@@ -84,7 +84,7 @@ func (h *secondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 		if intervalTimes > 10 {
 			progress, err := h.getJobInstanceProgress()
 			if err != nil {
-				logger.Errorf("report status failed due to getJobInstanceProgress failed, err=%v, jobIdAndInstanceId=%v.", err, jobIdAndInstanceId)
+				logger.Errorf("report status failed due to getJobInstanceProgress failed, err=%v, jobIdAndInstanceId=%s.", err, jobIdAndInstanceId)
 				continue
 			}
 			req := &schedulerx.WorkerReportJobInstanceProgressRequest{
@@ -105,7 +105,7 @@ func (h *secondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 		}
 
 		if err := h.need2KillSelf(); err != nil {
-			logger.Errorf("report status error, err=%v, jobIdAndInstanceId=%v.", err, jobIdAndInstanceId)
+			logger.Errorf("report status error, err=%v, jobIdAndInstanceId=%s.", err, jobIdAndInstanceId)
 		}
 	}
 }
@@ -122,20 +122,20 @@ func (h *secondJobUpdateInstanceStatusHandler) need2KillSelf() error {
 		if err := h.taskMaster.KillInstance("killed, because of worker missed active server."); err != nil {
 			return err
 		}
-		logger.Warnf("Missed server timeout=%vms, kill jobIdAndInstanceId=%v.", utils.GetHealthTimeHolder().GetServerHeartbeatMsInterval(), jobIdAndInstanceId)
+		logger.Warnf("Missed server timeout=%dms, kill jobIdAndInstanceId=%s.", utils.GetHealthTimeHolder().GetServerHeartbeatMsInterval(), jobIdAndInstanceId)
 
 	}
 	if h.taskMaster.GetAliveCheckWorkerSet().Len() == 0 && len(h.taskMaster.GetJobInstanceInfo().GetAllWorkers()) == 0 {
 		if err := h.taskMaster.KillInstance("killed, because of missed useful worker list."); err != nil {
 			return err
 		}
-		logger.Warnf("Missed useful worker list, kill jobIdAndInstanceId=%v.", jobIdAndInstanceId)
+		logger.Warnf("Missed useful worker list, kill jobIdAndInstanceId=%s.", jobIdAndInstanceId)
 	}
 	return nil
 }
 
 func (h *secondJobUpdateInstanceStatusHandler) getJobInstanceProgress() (string, error) {
-	progress, err := h.getJobInstanceProgress()
+	progress, err := h.taskMaster.GetJobInstanceProgress()
 	if err != nil {
 		return "", err
 	}
@@ -184,12 +184,12 @@ func (h *secondJobUpdateInstanceStatusHandler) getAllWorkers(appGroupId, jobId i
 
 func (h *secondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceStatus processor.InstanceStatus, result string) error {
 	cycleId := utils.GetUniqueId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId(), h.taskMaster.GetSerialNum())
-	logger.Infof("cycleId: %v instanceStatus=%v cycle update status.", cycleId, instanceStatus)
+	logger.Infof("cycleId:%s instanceStatus=%d cycle update status.", cycleId, instanceStatus)
 
 	// if init failed, instance status finished and master has not been killed, so second job kill self
 	if !h.taskMaster.IsInited() && instanceStatus.IsFinished() && !h.taskMaster.IsKilled() {
 		h.taskMaster.KillInstance("killed, because of worker init failed.")
-		logger.Warnf("Init failed need to kill self, cycleId=%v", cycleId)
+		logger.Warnf("Init failed need to kill self, cycleId=%s", cycleId)
 		return nil
 	}
 
@@ -208,7 +208,7 @@ func (h *secondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 			req := &schedulerx.WorkerReportJobInstanceStatusRequest{
 				JobId:         proto.Int64(h.jobInstanceInfo.GetJobId()),
 				JobInstanceId: proto.Int64(h.jobInstanceInfo.GetJobInstanceId()),
-				Status:        proto.Int32(h.jobInstanceInfo.GetStatus()),
+				Status:        proto.Int32(int32(instanceStatus)),
 				GroupId:       proto.String(h.jobInstanceInfo.GetGroupId()),
 			}
 			if result != "" {
@@ -216,7 +216,7 @@ func (h *secondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 			}
 			progress, err := h.getJobInstanceProgress()
 			if err != nil {
-				return fmt.Errorf("cycleId: %v instanceStatus=%v cycle update status failed due to getJobInstanceProgress failed, err=%s", cycleId, instanceStatus, err.Error())
+				return fmt.Errorf("cycleId:%s instanceStatus=%d cycle update status failed due to getJobInstanceProgress failed, err=%s", cycleId, instanceStatus, err.Error())
 			}
 			if progress != "" {
 				req.Progress = proto.String(progress)
@@ -225,7 +225,7 @@ func (h *secondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 				Msg: req,
 			}
 
-			logger.Infof("report cycleId=%v, status=%v to AtLeastDeliveryRoutingActor", cycleId, instanceStatus)
+			logger.Infof("report cycleId=%s, status=%d to AtLeastDeliveryRoutingActor", cycleId, instanceStatus)
 		}
 
 		// If the instance terminates no further action is required
@@ -241,16 +241,16 @@ func (h *secondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 
 func (h *secondJobUpdateInstanceStatusHandler) triggerNextCycle(cycleId string, serialNum int64, instanceStatus processor.InstanceStatus) {
 	if serialNum != h.taskMaster.GetSerialNum() {
-		logger.Infof("triggerNextCycle=%v ignore, current serialNum=%v, but trigger serialNum=%v, status=%v, killed=%v.",
+		logger.Infof("triggerNextCycle=%s ignore, current serialNum=%d, but trigger serialNum=%d, status=%d, killed=%v.",
 			cycleId, h.taskMaster.GetSerialNum(), serialNum, instanceStatus, h.taskMaster.IsKilled())
 		return
 	}
 	postResult := h.taskMaster.PostFinish(h.jobInstanceInfo.GetJobInstanceId())
 	if postResult != nil {
-		logger.Infof("cycleId: %v cycle post status, result=%v.", cycleId, postResult.Status(), postResult.Result())
+		logger.Infof("cycleId:%s cycle post status=%d, result=%s.", cycleId, postResult.Status(), postResult.Result())
 	}
 
-	logger.Infof("cycleId: %v cycle end.", cycleId)
+	logger.Infof("cycleId:%s cycle end.", cycleId)
 
 	h.setHistory(h.taskMaster.GetSerialNum(), h.cycleStartTime, instanceStatus)
 
@@ -270,7 +270,7 @@ func (h *secondJobUpdateInstanceStatusHandler) triggerNextCycle(cycleId string, 
 		delayTime, err := strconv.Atoi(h.jobInstanceInfo.GetTimeExpression())
 		if err != nil {
 			h.taskMaster.KillInstance("killed, because of cycle submit failed.")
-			logger.Errorf("cycleId=%v cycle submit failed, need to kill, err=%s", cycleId, err.Error())
+			logger.Errorf("cycleId=%s cycle submit failed, need to kill, err=%s", cycleId, err.Error())
 			return
 		}
 
@@ -363,8 +363,8 @@ func (h *secondJobUpdateInstanceStatusHandler) setHistory(serialNum int64, loopS
 
 // Schedule a new iteration
 func (h *secondJobUpdateInstanceStatusHandler) triggerNewCycle() {
-	cycleId := utils.GetUniqueId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId(), h.taskMaster.GetSerialNum())
-	logger.Infof("cycleId: %v cycle begin.", cycleId)
+	cycleId := utils.GetUniqueId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId(), h.taskMaster.AcquireSerialNum())
+	logger.Infof("cycleId:%s cycle begin.", cycleId)
 	h.cycleStartTime = time.Now().UnixMilli()
 	h.jobInstanceInfo.SetScheduleTime(time.Now())
 	// If existed invalid worker nodes, re-obtain the latest list

@@ -73,6 +73,7 @@ func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem, appKey s
 				logger.Warnf("Write heartbeat to server failed, had already re-connect with server, reason=%s", err.Error())
 				continue
 			}
+			utils.GetHealthTimeHolder().ResetServerHeartbeatTime()
 			logger.Debugf("Write heartbeat to remote succeed.")
 		}
 	}
