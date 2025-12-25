@@ -145,7 +145,7 @@ func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
 			default:
 				reqs := rcvr.AsyncHandleReqs(h)
 				logger.Debugf("jobInstanceId=%d, batch retrieve reqs, size:%d, remain size:%d, batchSize:%d",
-					rcvr.jobInstanceId, len(reqs), len(rcvr.reqsQueue.requests), rcvr.batchSize)
+					rcvr.jobInstanceId, len(reqs), rcvr.reqsQueue.Size(), rcvr.batchSize)
 				if int32(len(reqs)) < rcvr.batchSize*4/5 {
 					// no element in reqs, sleep a while for aggregation
 					time.Sleep(rcvr.emptySleepMs)
