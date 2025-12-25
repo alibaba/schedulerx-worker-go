@@ -26,7 +26,6 @@ import (
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/alibaba/schedulerx-worker-go/config"
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/discovery"
 	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
@@ -282,9 +281,7 @@ func (m *TaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
 	m.instanceStatus = processor.InstanceStatusRunning
 	m.aliveCheckWorkerSet.Clear()
 
-	if !config.GetWorkerConfig().IsShareContainerPool() {
-		taskMaster.DestroyContainerPool()
-	}
+	taskMaster.DestroyContainerPool()
 }
 
 func (m *TaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {

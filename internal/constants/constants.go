@@ -25,7 +25,6 @@ const (
 	MapMasterPageSizeDefault            = 100
 	MapMasterQueueSizeDefault           = 10000
 	MapMasterDispatcherSizeDefault      = 5
-	SharedPoolSizeDefault               = 64
 	ParallelTaskListSizeMaxDefault      = 300
 	WorkerMapPageSizeDefault            = 1000
 	MapMasterStatusCheckIntervalDefault = 3 * time.Second

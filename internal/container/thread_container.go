@@ -25,7 +25,6 @@ import (
 	"github.com/tidwall/gjson"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/alibaba/schedulerx-worker-go/config"
 	actorcomm "github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/batch"
 	"github.com/alibaba/schedulerx-worker-go/internal/constants"
@@ -194,12 +193,7 @@ func (c *ThreadContainer) reportTaskStatus(result *processor.ProcessResult, work
 		req.Result = proto.String(result.Result())
 	}
 
-	submitResult := false
-	if config.GetWorkerConfig().IsShareContainerPool() {
-		submitResult = batch.GetContainerStatusReqHandlerPool().SubmitReq(0, req)
-	} else {
-		submitResult = batch.GetContainerStatusReqHandlerPool().SubmitReq(c.jobCtx.JobInstanceId(), req)
-	}
+	submitResult := batch.GetContainerStatusReqHandlerPool().SubmitReq(c.jobCtx.JobInstanceId(), req)
 	logger.Debugf("reportTaskStatus instanceId=%v submitResult=%v, processResult=%v", utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId()), submitResult, result)
 	if !submitResult {
 		c.actorCtx.Request(c.masterPid, req)

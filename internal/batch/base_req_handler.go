@@ -17,7 +17,7 @@
 package batch
 
 import (
-	"fmt"
+	"math"
 	"runtime/debug"
 	"time"
 
@@ -29,6 +29,15 @@ import (
 )
 
 var _ ReqHandler = &BaseReqHandler{}
+
+var globalPool, _ = ants.NewPool(
+	math.MaxInt32,
+	ants.WithExpiryDuration(30*time.Second),
+	ants.WithPanicHandler(func(i interface{}) {
+		if r := recover(); r != nil {
+			logger.Errorf("Panic happened in BaseReqHandler Start, %v\n%s", r, debug.Stack())
+		}
+	}))
 
 // BaseReqHandler used for every parallel/Grid job instance
 // every parallel/Grid task master has a BaseReqHandler, a BaseReqHandler will
@@ -43,7 +52,6 @@ type BaseReqHandler struct {
 	reqsQueue               *ReqQueue
 	batchRetrieveFunc       func()
 	stopBatchRetrieveCh     chan struct{}
-	batchProcessSvc         *ants.Pool
 	defaultSleepMs          time.Duration
 	emptySleepMs            time.Duration
 	latestRequest           interface{}
@@ -128,19 +136,6 @@ func (rcvr *BaseReqHandler) SetWorkThreadNum(workThreadNum int) {
 }
 
 func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
-	gopool, err := ants.NewPool(
-		rcvr.maxBatchThreadNum,
-		ants.WithExpiryDuration(30*time.Second),
-		ants.WithPanicHandler(func(i interface{}) {
-			if r := recover(); r != nil {
-				logger.Errorf("Panic happened in BaseReqHandler Start, %v\n%s", r, debug.Stack())
-			}
-		}))
-	if err != nil {
-		return fmt.Errorf("New gopool failed, err=%s ", err.Error())
-	}
-	rcvr.batchProcessSvc = gopool
-
 	rcvr.stopBatchRetrieveCh = make(chan struct{}, 1)
 	rcvr.batchRetrieveFunc = func() {
 		for {
@@ -150,7 +145,7 @@ func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
 			default:
 				reqs := rcvr.AsyncHandleReqs(h)
 				logger.Debugf("jobInstanceId=%d, batch retrieve reqs, size:%d, remain size:%d, batchSize:%d",
-					rcvr.jobInstanceId, len(reqs), len(rcvr.reqsQueue.requests), rcvr.batchSize)
+					rcvr.jobInstanceId, len(reqs), rcvr.reqsQueue.Size(), rcvr.batchSize)
 				if int32(len(reqs)) < rcvr.batchSize*4/5 {
 					// no element in reqs, sleep a while for aggregation
 					time.Sleep(rcvr.emptySleepMs)
@@ -170,9 +165,6 @@ func (rcvr *BaseReqHandler) Stop() {
 	if rcvr.batchRetrieveFunc != nil {
 		rcvr.batchRetrieveFunc = nil
 		rcvr.stopBatchRetrieveCh <- struct{}{}
-	}
-	if rcvr.batchProcessSvc != nil {
-		rcvr.batchProcessSvc.Release()
 	}
 	if rcvr.reqsQueue != nil {
 		rcvr.reqsQueue.Clear()

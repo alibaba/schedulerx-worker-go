@@ -38,22 +38,14 @@ func (q *ReqQueue) SubmitRequest(req any) {
 func (q *ReqQueue) RetrieveRequests(batchSize int32) []any {
 	requests := make([]any, 0, batchSize)
 	for i := int32(0); i < batchSize; i++ {
-		req := q.pop()
-		if req == nil {
-			break
+		select {
+		case req := <-q.requests:
+			requests = append(requests, req)
+		default:
+			return requests
 		}
-		requests = append(requests, req)
 	}
 	return requests
-}
-
-func (q *ReqQueue) pop() any {
-	select {
-	case req := <-q.requests:
-		return req
-	default:
-		return nil
-	}
 }
 
 func (q *ReqQueue) Size() int {
@@ -61,5 +53,11 @@ func (q *ReqQueue) Size() int {
 }
 
 func (q *ReqQueue) Clear() {
-	q.requests = nil
+	for {
+		select {
+		case <-q.requests:
+		default: // empty
+			return
+		}
+	}
 }
