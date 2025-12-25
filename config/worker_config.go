@@ -43,12 +43,6 @@ func GetWorkerConfig() *WorkerConfig {
 
 type Option func(*WorkerConfig)
 
-func WithEnableShareContainerPool() Option {
-	return func(config *WorkerConfig) {
-		config.isShareContainerPool = true
-	}
-}
-
 func WithDisableMapMasterFailover() Option {
 	return func(config *WorkerConfig) {
 		config.isMapMasterFailover = false
@@ -100,12 +94,6 @@ func WithMapMasterDispatcherSize(mapMasterDispatcherSize int32) Option {
 func WithMapMasterStatusCheckInterval(mapMasterStatusCheckInterval time.Duration) Option {
 	return func(config *WorkerConfig) {
 		config.mapMasterStatusCheckInterval = mapMasterStatusCheckInterval
-	}
-}
-
-func WithSharePoolSize(sharePoolSize int32) Option {
-	return func(config *WorkerConfig) {
-		config.sharePoolSize = sharePoolSize
 	}
 }
 
@@ -162,7 +150,6 @@ func NewWorkerConfig(opts ...Option) *WorkerConfig {
 }
 
 type WorkerConfig struct {
-	isShareContainerPool            bool
 	isMapMasterFailover             bool
 	isSecondDelayIntervalMS         bool
 	isDispatchSecondDelayStandalone bool
@@ -172,7 +159,6 @@ type WorkerConfig struct {
 	mapMasterQueueSize              int32
 	mapMasterDispatcherSize         int32
 	mapMasterStatusCheckInterval    time.Duration
-	sharePoolSize                   int32
 	workerParallelTaskMaxSize       int32
 	workerMapPageSize               int32
 	taskBodySizeMax                 int32
@@ -180,10 +166,6 @@ type WorkerConfig struct {
 	iface                           string
 	queueSize                       int32
 	label                           string
-}
-
-func (w *WorkerConfig) IsShareContainerPool() bool {
-	return w.isShareContainerPool
 }
 
 func (w *WorkerConfig) IsMapMasterFailover() bool {
@@ -222,10 +204,6 @@ func (w *WorkerConfig) MapMasterStatusCheckInterval() time.Duration {
 	return w.mapMasterStatusCheckInterval
 }
 
-func (w *WorkerConfig) SharePoolSize() int32 {
-	return w.sharePoolSize
-}
-
 func (w *WorkerConfig) WorkerParallelTaskMaxSize() int32 {
 	return w.workerParallelTaskMaxSize
 }
@@ -257,7 +235,6 @@ func (w *WorkerConfig) Label() string {
 func defaultWorkerConfig() *WorkerConfig {
 	return &WorkerConfig{
 		isSecondDelayIntervalMS:         false,
-		isShareContainerPool:            false,
 		isDispatchSecondDelayStandalone: false,
 		isMapMasterFailover:             true,
 		broadcastMasterExecEnable:       true,
@@ -266,7 +243,6 @@ func defaultWorkerConfig() *WorkerConfig {
 		mapMasterQueueSize:              constants.MapMasterQueueSizeDefault,
 		mapMasterDispatcherSize:         constants.MapMasterDispatcherSizeDefault,
 		mapMasterStatusCheckInterval:    constants.MapMasterStatusCheckIntervalDefault,
-		sharePoolSize:                   constants.SharedPoolSizeDefault,
 		workerParallelTaskMaxSize:       constants.ParallelTaskListSizeMaxDefault,
 		workerMapPageSize:               constants.WorkerMapPageSizeDefault,
 		taskBodySizeMax:                 constants.TaskBodySizeMaxDefault,

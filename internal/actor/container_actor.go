@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -42,7 +43,7 @@ import (
 var _ actor.Actor = &containerActor{}
 
 var defaultActorPool, _ = ants.NewPool(
-	ants.DefaultAntsPoolSize,
+	math.MaxInt32,
 	ants.WithPanicHandler(func(i interface{}) {
 		if r := recover(); r != nil {
 			logger.Errorf("Panic happened in containerStarter, %v\n%s", r, debug.Stack())

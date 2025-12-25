@@ -20,7 +20,6 @@ import (
 	"github.com/asynkron/protoactor-go/actor"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/alibaba/schedulerx-worker-go/config"
 	"github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
@@ -85,9 +84,7 @@ func (rcvr *commonUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 			logger.Infof("report jobInstance=%d, status=%d to AtLeastDeliveryRoutingActor", jobInstanceId, instanceStatus)
 
 			// destroy containers and taskMaster
-			if !config.GetWorkerConfig().IsShareContainerPool() {
-				rcvr.taskMaster.DestroyContainerPool()
-			}
+			rcvr.taskMaster.DestroyContainerPool()
 			if taskMaster := rcvr.masterPool.Get(jobInstanceId); taskMaster != nil {
 				taskMaster.Stop()
 				rcvr.masterPool.Remove(jobInstanceId)

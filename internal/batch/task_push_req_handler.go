@@ -46,7 +46,7 @@ func (h *TaskPushReqHandler) Process(jobInstanceId int64, reqs []interface{}, wo
 		masterStartContainerReqs = append(masterStartContainerReqs, req.(*schedulerx.MasterStartContainerRequest))
 	}
 
-	err := h.batchProcessSvc.Submit(func() {
+	err := globalPool.Submit(func() {
 		if taskMaster := h.taskMasterPool.Get(jobInstanceId); taskMaster != nil {
 			if mapTaskMaster, ok := taskMaster.(taskmaster.MapTaskMaster); ok {
 				startTime := time.Now()
