@@ -347,17 +347,14 @@ func (h *secondJobUpdateInstanceStatusHandler) setHistory(serialNum int64, loopS
 	if len(taskProgressMap) == 0 {
 		return
 	}
-	history := common.NewProgressHistory()
-	history.SetSerialNum(serialNum)
-	history.SetStartTime(loopStartTime)
-	history.SetEndTime(time.Now().UnixMilli())
-	history.SetCostTime(history.EndTime() - history.StartTime())
-	history.SetTaskProgressMap(taskProgressMap)
-	if status == processor.InstanceStatusSucceed {
-		history.SetSuccess(true)
-	} else {
-		history.SetSuccess(false)
+	history := &common.ProgressHistory{
+		SerialNum:       serialNum,
+		StartTime:       loopStartTime,
+		EndTime:         time.Now().UnixMilli(),
+		Success:         status == processor.InstanceStatusSucceed,
+		TaskProgressMap: taskProgressMap,
 	}
+	history.CostTime = history.EndTime - history.StartTime
 	h.recentProgressHistory.Enqueue(history)
 }
 

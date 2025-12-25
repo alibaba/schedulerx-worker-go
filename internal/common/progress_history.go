@@ -17,63 +17,10 @@
 package common
 
 type ProgressHistory struct {
-	serialNum       int64
-	startTime       int64
-	endTime         int64
-	costTime        int64
-	success         bool
-	taskProgressMap map[string]*TaskProgressCounter
-}
-
-func NewProgressHistory() (rcvr *ProgressHistory) {
-	rcvr = &ProgressHistory{}
-	return
-}
-
-func (p *ProgressHistory) SerialNum() int64 {
-	return p.serialNum
-}
-
-func (p *ProgressHistory) SetSerialNum(serialNum int64) {
-	p.serialNum = serialNum
-}
-
-func (p *ProgressHistory) StartTime() int64 {
-	return p.startTime
-}
-
-func (p *ProgressHistory) SetStartTime(startTime int64) {
-	p.startTime = startTime
-}
-
-func (p *ProgressHistory) EndTime() int64 {
-	return p.endTime
-}
-
-func (p *ProgressHistory) SetEndTime(endTime int64) {
-	p.endTime = endTime
-}
-
-func (p *ProgressHistory) CostTime() int64 {
-	return p.costTime
-}
-
-func (p *ProgressHistory) SetCostTime(costTime int64) {
-	p.costTime = costTime
-}
-
-func (p *ProgressHistory) Success() bool {
-	return p.success
-}
-
-func (p *ProgressHistory) SetSuccess(success bool) {
-	p.success = success
-}
-
-func (p *ProgressHistory) TaskProgressMap() map[string]*TaskProgressCounter {
-	return p.taskProgressMap
-}
-
-func (p *ProgressHistory) SetTaskProgressMap(taskProgressMap map[string]*TaskProgressCounter) {
-	p.taskProgressMap = taskProgressMap
+	SerialNum       int64                           `json:"serialNum"`
+	StartTime       int64                           `json:"startTime"`
+	EndTime         int64                           `json:"endTime"`
+	CostTime        int64                           `json:"costTime"`
+	Success         bool                            `json:"success"`
+	TaskProgressMap map[string]*TaskProgressCounter `json:"taskProgressMap"`
 }
