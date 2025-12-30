@@ -362,7 +362,7 @@ func (m *BroadcastTaskMaster) checkWorkerAlive() {
 			m.aliveCheckWorkerSet.Add(worker)
 		}
 
-		for _, workerIdAddr := range m.aliveCheckWorkerSet.ToStringSlice() {
+		for _, workerIdAddr := range m.aliveCheckWorkerSet.Keys() {
 			req := &schedulerx.MasterCheckWorkerAliveRequest{
 				JobInstanceId: proto.Int64(m.jobInstanceInfo.GetJobInstanceId()),
 			}

@@ -23,20 +23,20 @@ import (
 
 // TimeQueue Time queue sorted by scheduling time and task priority
 type TimeQueue struct {
-	timeSet   *utils.ConcurrentSet // Set<TimePlanEntry>
-	timeQueue *utils.PriorityQueue // Queue<TimePlanEntry> priority queue, sorted from small to large by scheduling time
+	timeSet   *utils.ConcurrentSet[string] // Set<TimePlanEntry>
+	timeQueue *utils.PriorityQueue         // Queue<TimePlanEntry> priority queue, sorted from small to large by scheduling time
 }
 
 func NewTimeQueue() *TimeQueue {
 	return &TimeQueue{
-		timeSet:   utils.NewConcurrentSet(),
+		timeSet:   utils.NewConcurrentSet[string](),
 		timeQueue: utils.NewPriorityQueue(100),
 	}
 }
 
 func (q *TimeQueue) Add(timePlanEntry *TimePlanEntry) {
-	if !q.timeSet.Contains(timePlanEntry) {
-		q.timeSet.Add(timePlanEntry)
+	if !q.timeSet.Contains(timePlanEntry.UniqueID()) {
+		q.timeSet.Add(timePlanEntry.UniqueID())
 		q.timeQueue.PushItem(timePlanEntry)
 		logger.Infof("timeQueue add plan=%+v", timePlanEntry)
 	} else {
@@ -49,7 +49,7 @@ func (q *TimeQueue) Remove(jobInstanceId int64) {
 		planEntry := q.timeQueue.Peek().(*TimePlanEntry)
 		if jobInstanceId == planEntry.jobInstanceId {
 			q.timeQueue.Pop()
-			q.timeSet.Remove(planEntry)
+			q.timeSet.Remove(planEntry.UniqueID())
 			logger.Infof("planEntry=%+v removed, event.getTriggerType() != null", planEntry)
 		}
 	}
@@ -68,7 +68,7 @@ func (q *TimeQueue) RemoveHeader() *TimePlanEntry {
 	var planEntry *TimePlanEntry
 	if item := q.timeQueue.Pop(); item != nil {
 		planEntry = item.(*TimePlanEntry)
-		q.timeSet.Remove(planEntry)
+		q.timeSet.Remove(planEntry.UniqueID())
 	}
 	return planEntry
 }

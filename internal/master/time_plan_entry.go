@@ -17,6 +17,8 @@
 package master
 
 import (
+	"fmt"
+
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 )
 
@@ -25,10 +27,10 @@ var _ utils.ComparatorItem = &TimePlanEntry{}
 type TimePlanEntry struct {
 	jobInstanceId     int64
 	scheduleTimeStamp int64
-	handler           *secondJobUpdateInstanceStatusHandler
+	handler           *SecondJobUpdateInstanceStatusHandler
 }
 
-func NewTimePlanEntry(jobInstanceId int64, scheduleTimeStamp int64, handler *secondJobUpdateInstanceStatusHandler) *TimePlanEntry {
+func NewTimePlanEntry(jobInstanceId int64, scheduleTimeStamp int64, handler *SecondJobUpdateInstanceStatusHandler) *TimePlanEntry {
 	return &TimePlanEntry{jobInstanceId: jobInstanceId, scheduleTimeStamp: scheduleTimeStamp, handler: handler}
 }
 
@@ -48,12 +50,16 @@ func (t *TimePlanEntry) SetScheduleTimeStamp(scheduleTimeStamp int64) {
 	t.scheduleTimeStamp = scheduleTimeStamp
 }
 
-func (t *TimePlanEntry) Handler() *secondJobUpdateInstanceStatusHandler {
+func (t *TimePlanEntry) Handler() *SecondJobUpdateInstanceStatusHandler {
 	return t.handler
 }
 
-func (t *TimePlanEntry) SetHandler(handler *secondJobUpdateInstanceStatusHandler) {
+func (t *TimePlanEntry) SetHandler(handler *SecondJobUpdateInstanceStatusHandler) {
 	t.handler = handler
+}
+
+func (t *TimePlanEntry) UniqueID() string {
+	return fmt.Sprintf("%d@%d", t.jobInstanceId, t.scheduleTimeStamp)
 }
 
 func (t *TimePlanEntry) Value() interface{} {

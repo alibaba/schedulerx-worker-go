@@ -39,7 +39,7 @@ type TaskMaster interface {
 	KillInstance(reason string) error
 	GetInstanceStatus() processor.InstanceStatus
 	GetJobInstanceProgress() (string, error)
-	GetAliveCheckWorkerSet() *utils.ConcurrentSet
+	GetAliveCheckWorkerSet() *utils.ConcurrentSet[string]
 	GetJobInstanceInfo() *common.JobInstanceInfo
 	RestJobInstanceWorkerList(freeWorkers *utils.Set)
 	SubmitInstance(ctx context.Context, jobInstanceInfo *common.JobInstanceInfo) error

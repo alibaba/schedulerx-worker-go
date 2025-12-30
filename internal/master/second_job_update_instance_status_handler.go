@@ -44,7 +44,7 @@ import (
 
 const missServerKillTime = 30 // seconds
 
-type secondJobUpdateInstanceStatusHandler struct {
+type SecondJobUpdateInstanceStatusHandler struct {
 	*baseUpdateInstanceStatusHandler
 	actorCtx              actor.Context
 	secondProgressDetail  *common.SecondProgressDetail
@@ -56,7 +56,7 @@ type secondJobUpdateInstanceStatusHandler struct {
 }
 
 func NewSecondJobUpdateInstanceStatusHandler(actorCtx actor.Context, taskMaster taskmaster.TaskMaster, jobInstanceInfo *common.JobInstanceInfo) UpdateInstanceStatusHandler {
-	h := &secondJobUpdateInstanceStatusHandler{
+	h := &SecondJobUpdateInstanceStatusHandler{
 		baseUpdateInstanceStatusHandler: NewBaseUpdateInstanceStatusHandler(jobInstanceInfo, taskMaster),
 		actorCtx:                        actorCtx,
 		cycleStartTime:                  time.Now().UnixMilli(),
@@ -68,14 +68,14 @@ func NewSecondJobUpdateInstanceStatusHandler(actorCtx actor.Context, taskMaster 
 	return h
 }
 
-func (h *secondJobUpdateInstanceStatusHandler) init() {
+func (h *SecondJobUpdateInstanceStatusHandler) init() {
 	GetTimeScheduler().init()
 
 	// job instance progress report thread.
 	go h.reportJobInstanceProgress()
 }
 
-func (h *secondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
+func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 	intervalTimes := 0
 	jobIdAndInstanceId := utils.GetUniqueIdWithoutTaskId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId())
 	for !h.taskMaster.IsKilled() {
@@ -113,7 +113,7 @@ func (h *secondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 // Kill self is required if any of the following conditions are met:
 // 1. Lost contact with the server for more than 30 seconds
 // 2. The grid task has no available worker
-func (h *secondJobUpdateInstanceStatusHandler) need2KillSelf() error {
+func (h *SecondJobUpdateInstanceStatusHandler) need2KillSelf() error {
 	if !h.taskMaster.IsInited() {
 		return nil
 	}
@@ -134,7 +134,7 @@ func (h *secondJobUpdateInstanceStatusHandler) need2KillSelf() error {
 	return nil
 }
 
-func (h *secondJobUpdateInstanceStatusHandler) getJobInstanceProgress() (string, error) {
+func (h *SecondJobUpdateInstanceStatusHandler) getJobInstanceProgress() (string, error) {
 	progress, err := h.taskMaster.GetJobInstanceProgress()
 	if err != nil {
 		return "", err
@@ -151,7 +151,7 @@ func (h *secondJobUpdateInstanceStatusHandler) getJobInstanceProgress() (string,
 }
 
 // Get the latest worker list
-func (h *secondJobUpdateInstanceStatusHandler) getAllWorkers(appGroupId, jobId int64) (*utils.Set, error) {
+func (h *SecondJobUpdateInstanceStatusHandler) getAllWorkers(appGroupId, jobId int64) (*utils.Set, error) {
 	url := fmt.Sprintf("http://%s/app/getAllUsefulWorkerList.json?appGroupId=%d&jobId=%d", openapi.GetOpenAPIClient().Domain(), appGroupId, jobId)
 	resp, err := openapi.GetOpenAPIClient().HttpClient().Get(url)
 	if err != nil {
@@ -182,7 +182,7 @@ func (h *secondJobUpdateInstanceStatusHandler) getAllWorkers(appGroupId, jobId i
 	return set, nil
 }
 
-func (h *secondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceStatus processor.InstanceStatus, result string) error {
+func (h *SecondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceStatus processor.InstanceStatus, result string) error {
 	cycleId := utils.GetUniqueId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId(), h.taskMaster.GetSerialNum())
 	logger.Infof("cycleId:%s instanceStatus=%d cycle update status.", cycleId, instanceStatus)
 
@@ -239,7 +239,7 @@ func (h *secondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 	return nil
 }
 
-func (h *secondJobUpdateInstanceStatusHandler) triggerNextCycle(cycleId string, serialNum int64, instanceStatus processor.InstanceStatus) {
+func (h *SecondJobUpdateInstanceStatusHandler) triggerNextCycle(cycleId string, serialNum int64, instanceStatus processor.InstanceStatus) {
 	if serialNum != h.taskMaster.GetSerialNum() {
 		logger.Infof("triggerNextCycle=%s ignore, current serialNum=%d, but trigger serialNum=%d, status=%d, killed=%v.",
 			cycleId, h.taskMaster.GetSerialNum(), serialNum, instanceStatus, h.taskMaster.IsKilled())
@@ -285,7 +285,7 @@ func (h *secondJobUpdateInstanceStatusHandler) triggerNextCycle(cycleId string, 
 	}
 }
 
-func (h *secondJobUpdateInstanceStatusHandler) setHistory(serialNum int64, loopStartTime int64, status processor.InstanceStatus) {
+func (h *SecondJobUpdateInstanceStatusHandler) setHistory(serialNum int64, loopStartTime int64, status processor.InstanceStatus) {
 	if status == processor.InstanceStatusSucceed {
 		h.secondProgressDetail.GetTodayProgressCounter().IncrementOneSuccess()
 	} else {
@@ -359,7 +359,7 @@ func (h *secondJobUpdateInstanceStatusHandler) setHistory(serialNum int64, loopS
 }
 
 // Schedule a new iteration
-func (h *secondJobUpdateInstanceStatusHandler) triggerNewCycle() {
+func (h *SecondJobUpdateInstanceStatusHandler) triggerNewCycle() {
 	cycleId := utils.GetUniqueId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId(), h.taskMaster.AcquireSerialNum())
 	logger.Infof("cycleId:%s cycle begin.", cycleId)
 	h.cycleStartTime = time.Now().UnixMilli()

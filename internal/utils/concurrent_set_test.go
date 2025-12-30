@@ -22,7 +22,7 @@ import (
 )
 
 func TestConcurrentSet(t *testing.T) {
-	set := NewConcurrentSet()
+	set := NewConcurrentSet[int]()
 
 	// Test add
 	set.Add(1)
@@ -63,13 +63,13 @@ func TestConcurrentSet(t *testing.T) {
 }
 
 func TestToStringSlice(t *testing.T) {
-	chs := &ConcurrentSet{}
+	chs := &ConcurrentSet[string]{}
 
 	// Test add
 	chs.Add("hello")
 	chs.Add("world")
 
-	slice := chs.ToStringSlice()
+	slice := chs.Keys()
 
 	if len(slice) != 2 {
 		t.Fatalf("Expected length of 2, but got %d", len(slice))

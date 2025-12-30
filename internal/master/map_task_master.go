@@ -293,7 +293,7 @@ func (m *MapTaskMaster) checkWorkerAlive() {
 			m.taskPersistence.BatchUpdateTaskStatus(m.GetJobInstanceInfo().GetJobInstanceId(), taskstatus.TaskStatusFailed, "", "")
 			break
 		} else {
-			for _, workerIdAddr := range m.aliveCheckWorkerSet.ToStringSlice() {
+			for _, workerIdAddr := range m.aliveCheckWorkerSet.Keys() {
 				workerAddr := actorcomm.GetRealWorkerAddr(workerIdAddr)
 
 				times := 0

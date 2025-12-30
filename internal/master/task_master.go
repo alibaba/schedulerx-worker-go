@@ -39,23 +39,23 @@ import (
 var _ taskmaster.TaskMaster = &TaskMaster{}
 
 type TaskMaster struct {
-	actorContext             actor.Context               `json:"actorContext,omitempty"`
-	instanceStatus           processor.InstanceStatus    `json:"instanceStatus,omitempty"` // WARNING: not concurrency-safe
-	taskStatusMap            sync.Map                    `json:"taskStatusMap"`            // key:string, val:TaskStatus
-	taskIdGenerator          *atomic.Int64               `json:"taskIdGenerator"`          // WARNING: not concurrency-safe
-	localWorkIdAddr          string                      `json:"localWorkIdAddr,omitempty"`
-	localContainerRouterPath string                      `json:"localContainerRouterPath,omitempty"`
-	localTaskRouterPath      string                      `json:"localTaskRouterPath,omitempty"`
-	localInstanceRouterPath  string                      `json:"localInstanceRouterPath,omitempty"`
-	jobInstanceInfo          *common.JobInstanceInfo     `json:"jobInstanceInfo,omitempty"`
-	jobInstanceProgress      string                      `json:"jobInstanceProgress,omitempty"`
-	statusHandler            UpdateInstanceStatusHandler `json:"statusHandler,omitempty"`
-	killed                   bool                        `json:"killed,omitempty"`              // WARNING: not concurrency-safe
-	inited                   bool                        `json:"inited,omitempty"`              // WARNING: not concurrency-safe
-	aliveCheckWorkerSet      *utils.ConcurrentSet        `json:"aliveCheckWorkerSet,omitempty"` // string
-	serverDiscovery          discovery.ServiceDiscover   `json:"serverDiscovery"`
-	serialNum                *atomic.Int64               `json:"serialNum,omitempty"`          // 秒级任务使用，当前循环次数
-	existInvalidWorker       bool                        `json:"existInvalidWorker,omitempty"` // 是否存在失效Worker WARNING: not concurrency-safe
+	actorContext             actor.Context                `json:"actorContext,omitempty"`
+	instanceStatus           processor.InstanceStatus     `json:"instanceStatus,omitempty"` // WARNING: not concurrency-safe
+	taskStatusMap            sync.Map                     `json:"taskStatusMap"`            // key:string, val:TaskStatus
+	taskIdGenerator          *atomic.Int64                `json:"taskIdGenerator"`          // WARNING: not concurrency-safe
+	localWorkIdAddr          string                       `json:"localWorkIdAddr,omitempty"`
+	localContainerRouterPath string                       `json:"localContainerRouterPath,omitempty"`
+	localTaskRouterPath      string                       `json:"localTaskRouterPath,omitempty"`
+	localInstanceRouterPath  string                       `json:"localInstanceRouterPath,omitempty"`
+	jobInstanceInfo          *common.JobInstanceInfo      `json:"jobInstanceInfo,omitempty"`
+	jobInstanceProgress      string                       `json:"jobInstanceProgress,omitempty"`
+	statusHandler            UpdateInstanceStatusHandler  `json:"statusHandler,omitempty"`
+	killed                   bool                         `json:"killed,omitempty"`              // WARNING: not concurrency-safe
+	inited                   bool                         `json:"inited,omitempty"`              // WARNING: not concurrency-safe
+	aliveCheckWorkerSet      *utils.ConcurrentSet[string] `json:"aliveCheckWorkerSet,omitempty"` // string
+	serverDiscovery          discovery.ServiceDiscover    `json:"serverDiscovery"`
+	serialNum                *atomic.Int64                `json:"serialNum,omitempty"`          // 秒级任务使用，当前循环次数
+	existInvalidWorker       bool                         `json:"existInvalidWorker,omitempty"` // 是否存在失效Worker WARNING: not concurrency-safe
 
 	lock sync.RWMutex
 }
@@ -67,7 +67,7 @@ func NewTaskMaster(actorCtx actor.Context, jobInstanceInfo *common.JobInstanceIn
 		instanceStatus:      processor.InstanceStatusRunning,
 		taskStatusMap:       sync.Map{},
 		taskIdGenerator:     atomic.NewInt64(-1),
-		aliveCheckWorkerSet: utils.NewConcurrentSet(),
+		aliveCheckWorkerSet: utils.NewConcurrentSet[string](),
 		jobInstanceInfo:     jobInstanceInfo,
 		actorContext:        actorCtx,
 		localWorkIdAddr:     workerIdAddr,
@@ -311,7 +311,7 @@ func (m *TaskMaster) GetJobInstanceInfo() *common.JobInstanceInfo {
 }
 
 // GetAliveCheckWorkerSet return set<string>
-func (m *TaskMaster) GetAliveCheckWorkerSet() *utils.ConcurrentSet {
+func (m *TaskMaster) GetAliveCheckWorkerSet() *utils.ConcurrentSet[string] {
 	return m.aliveCheckWorkerSet
 }
 
@@ -336,7 +336,7 @@ func (m *TaskMaster) ExistInvalidWorker() bool {
 func (m *TaskMaster) ResetJobInstanceWorkerList() {
 	freeWorkersNum := m.aliveCheckWorkerSet.Len()
 	if freeWorkersNum > 0 {
-		m.jobInstanceInfo.SetAllWorkers(m.aliveCheckWorkerSet.ToStringSlice())
+		m.jobInstanceInfo.SetAllWorkers(m.aliveCheckWorkerSet.Keys())
 		m.existInvalidWorker = false
 		logger.Infof("restJobInstanceWorkerList appGroupId=%d, instanceId=%d, workerSize=%d.",
 			m.jobInstanceInfo.GetAppGroupId(), m.jobInstanceInfo.GetJobInstanceId(), freeWorkersNum)
