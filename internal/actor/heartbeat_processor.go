@@ -32,7 +32,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
-var _ actor.Process = &heartbeatProcessor{}
+var _ actor.Process = (*heartbeatProcessor)(nil)
 
 type heartbeatProcessor struct {
 	connpool pool.ConnPool

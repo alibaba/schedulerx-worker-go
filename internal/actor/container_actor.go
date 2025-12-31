@@ -40,7 +40,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
-var _ actor.Actor = &containerActor{}
+var _ actor.Actor = (*containerActor)(nil)
 
 var defaultActorPool, _ = ants.NewPool(
 	math.MaxInt32,

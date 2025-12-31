@@ -17,7 +17,6 @@
 package master
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -141,7 +140,7 @@ func (h *SecondJobUpdateInstanceStatusHandler) getJobInstanceProgress() (string,
 	}
 	h.secondProgressDetail.SetRunningProgress(progress)
 	h.secondProgressDetail.SetRunningStartTime(h.cycleStartTime)
-	h.secondProgressDetail.SetRecentProgressHistory(h.recentProgressHistory.Convert2Slice())
+	h.secondProgressDetail.SetRecentProgressHistory(h.recentProgressHistory.ArrayList())
 	data, err := json.Marshal(h.secondProgressDetail)
 	if err != nil {
 		return "", err
@@ -194,17 +193,15 @@ func (h *SecondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 	}
 
 	// if instance is killed, need to report to server
-	// From a logical point of view, you only need to judge whether the master has been killed.
-	// There is no need to judge whether the result contains the specified information.
-	// However, history says that we should not delete it in the short term.
-	if h.taskMaster.IsKilled() &&
-		(strings.Contains(result, "killed") || strings.Contains(result, "Worker master shutdown")) {
+	// 从逻辑看只需要判断master是否被kill即可，无需判断result是否包含指定信息，但历史这么写着短期不敢删减
+	if h.taskMaster.IsKilled() && (strings.Contains(result, "killed") ||
+		strings.Contains(result, "Worker master shutdown")) {
 		h.taskMaster.SetInstanceStatus(processor.InstanceStatusFailed)
 		h.taskMaster.Stop()
 		h.masterPool.Remove(h.jobInstanceInfo.GetJobInstanceId())
 
 		if result != "killed from server" {
-			// There is no status feedback for the server-side forced stop operation.
+			// 对服务端强制停止操作不做状态反馈
 			req := &schedulerx.WorkerReportJobInstanceStatusRequest{
 				JobId:         proto.Int64(h.jobInstanceInfo.GetJobId()),
 				JobInstanceId: proto.Int64(h.jobInstanceInfo.GetJobInstanceId()),
@@ -228,7 +225,7 @@ func (h *SecondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 			logger.Infof("report cycleId=%s, status=%d to AtLeastDeliveryRoutingActor", cycleId, instanceStatus)
 		}
 
-		// If the instance terminates no further action is required
+		// 如果实例终止无需进行后续操作
 		return nil
 	}
 
@@ -373,7 +370,7 @@ func (h *SecondJobUpdateInstanceStatusHandler) triggerNewCycle() {
 		}
 		h.taskMaster.RestJobInstanceWorkerList(freeWorkers)
 	}
-	h.taskMaster.SubmitInstance(context.Background(), h.jobInstanceInfo)
+	h.taskMaster.SubmitInstance(h.jobInstanceInfo)
 
 	h.triggerTimes++
 	// If it is a standalone task, cu+1

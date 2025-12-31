@@ -37,7 +37,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/mapjob/bizsubtask"
 )
 
-var _ processor.MapJobProcessor = &MapJobProcessor{}
+var _ processor.MapJobProcessor = (*MapJobProcessor)(nil)
 
 const maxRetryCount = 3
 

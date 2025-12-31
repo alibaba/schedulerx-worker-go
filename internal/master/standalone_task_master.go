@@ -17,7 +17,6 @@
 package master
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -39,7 +38,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
-var _ taskmaster.TaskMaster = &StandaloneTaskMaster{}
+var _ taskmaster.TaskMaster = (*StandaloneTaskMaster)(nil)
 
 type StandaloneTaskMaster struct {
 	*TaskMaster
@@ -79,7 +78,7 @@ func NewStandaloneTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx a
 	return standaloneTaskMaster
 }
 
-func (m *StandaloneTaskMaster) SubmitInstance(ctx context.Context, jobInstanceInfo *common.JobInstanceInfo) error {
+func (m *StandaloneTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceInfo) error {
 	var (
 		err      error
 		uniqueId string
@@ -162,6 +161,8 @@ func (m *StandaloneTaskMaster) selectWorker() string {
 }
 
 func (m *StandaloneTaskMaster) KillInstance(reason string) error {
+	_ = m.TaskMaster.KillInstance(reason)
+
 	uniqueId := utils.GetUniqueIdWithoutTaskId(m.jobInstanceInfo.GetJobId(), m.jobInstanceInfo.GetJobInstanceId())
 	req := &schedulerx.MasterKillContainerRequest{
 		JobId:                 proto.Int64(m.jobInstanceInfo.GetJobId()),

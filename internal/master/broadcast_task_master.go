@@ -17,7 +17,6 @@
 package master
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -42,7 +41,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
-var _ taskmaster.TaskMaster = &BroadcastTaskMaster{}
+var _ taskmaster.TaskMaster = (*BroadcastTaskMaster)(nil)
 
 type BroadcastTaskMaster struct {
 	*TaskMaster
@@ -76,7 +75,7 @@ func NewBroadcastTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx ac
 	return broadcastTaskMaster
 }
 
-func (m *BroadcastTaskMaster) SubmitInstance(ctx context.Context, jobInstanceInfo *common.JobInstanceInfo) error {
+func (m *BroadcastTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceInfo) error {
 	if err := m.preProcess(jobInstanceInfo); err != nil {
 		logger.Errorf("BroadcastTaskMaster.preProcess failed, jobInstanceId=%d, err=%s", jobInstanceInfo.GetJobInstanceId(), err.Error())
 		if e := m.TaskMaster.updateNewInstanceStatus(m.GetSerialNum(), m.jobInstanceInfo.GetJobInstanceId(), processor.InstanceStatusFailed, "Preprocess failed. "+err.Error()); e != nil {
@@ -185,7 +184,7 @@ func (m *BroadcastTaskMaster) dispatchTask(jobInstanceInfo *common.JobInstanceIn
 }
 
 func (m *BroadcastTaskMaster) KillInstance(reason string) error {
-	m.TaskMaster.KillInstance(reason)
+	_ = m.TaskMaster.KillInstance(reason)
 
 	for _, workerIdAddr := range m.allWorkers {
 		uniqueId, ok := m.worker2uniqueIdMap.Load(workerIdAddr)

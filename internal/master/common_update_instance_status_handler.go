@@ -29,7 +29,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor"
 )
 
-var _ UpdateInstanceStatusHandler = &commonUpdateInstanceStatusHandler{}
+var _ UpdateInstanceStatusHandler = (*commonUpdateInstanceStatusHandler)(nil)
 
 type commonUpdateInstanceStatusHandler struct {
 	*baseUpdateInstanceStatusHandler

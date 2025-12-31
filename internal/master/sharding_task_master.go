@@ -17,7 +17,6 @@
 package master
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,7 +37,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
-var _ taskmaster.MapTaskMaster = &ShardingTaskMaster{}
+var _ taskmaster.MapTaskMaster = (*ShardingTaskMaster)(nil)
 
 type ShardingTaskMaster struct {
 	*GridTaskMaster
@@ -55,7 +54,7 @@ func NewShardingTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx act
 	}
 }
 
-func (m *ShardingTaskMaster) SubmitInstance(ctx context.Context, jobInstanceInfo *common.JobInstanceInfo) error {
+func (m *ShardingTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceInfo) error {
 	if err := m.parseShardingParameters(jobInstanceInfo); err != nil {
 		m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, err.Error())
 		return err

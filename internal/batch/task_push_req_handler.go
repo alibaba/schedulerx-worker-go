@@ -24,7 +24,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
-var _ TaskDispatchReqHandler = &TaskPushReqHandler{}
+var _ TaskDispatchReqHandler = (*TaskPushReqHandler)(nil)
 
 type TaskPushReqHandler struct {
 	*BaseTaskDispatchReqHandler

@@ -17,8 +17,6 @@
 package taskmaster
 
 import (
-	"context"
-
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
@@ -42,7 +40,7 @@ type TaskMaster interface {
 	GetAliveCheckWorkerSet() *utils.ConcurrentSet[string]
 	GetJobInstanceInfo() *common.JobInstanceInfo
 	RestJobInstanceWorkerList(freeWorkers *utils.Set)
-	SubmitInstance(ctx context.Context, jobInstanceInfo *common.JobInstanceInfo) error
+	SubmitInstance(jobInstanceInfo *common.JobInstanceInfo) error
 	BatchUpdateTaskStatus(taskMaster TaskMaster, req *schedulerx.ContainerBatchReportTaskStatuesRequest) error
 	UpdateTaskStatus(req *schedulerx.ContainerReportTaskStatusRequest) error
 	SetInstanceStatus(instanceStatus processor.InstanceStatus)

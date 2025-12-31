@@ -30,7 +30,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
-var _ actor.Actor = &heartbeatActor{}
+var _ actor.Actor = (*heartbeatActor)(nil)
 
 // heartbeatActor is the
 type heartbeatActor struct {

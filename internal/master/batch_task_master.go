@@ -28,7 +28,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 )
 
-var _ taskmaster.MapTaskMaster = &BatchTaskMaster{}
+var _ taskmaster.MapTaskMaster = (*BatchTaskMaster)(nil)
 
 type BatchTaskMaster struct {
 	*GridTaskMaster

@@ -17,7 +17,6 @@
 package master
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -376,7 +375,7 @@ func (m *MapTaskMaster) notifyWorkerPull() {
 	}
 }
 
-func (m *MapTaskMaster) SubmitInstance(ctx context.Context, jobInstanceInfo *common.JobInstanceInfo) error {
+func (m *MapTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceInfo) error {
 	var err error
 	defer func() {
 		if err != nil {
@@ -790,7 +789,8 @@ func (m *MapTaskMaster) selectWorker() string {
 }
 
 func (m *MapTaskMaster) KillInstance(reason string) error {
-	m.TaskMaster.KillInstance(reason)
+	_ = m.TaskMaster.KillInstance(reason)
+
 	allWorkers := m.GetJobInstanceInfo().GetAllWorkers()
 	for _, workerIdAddr := range allWorkers {
 		request := &schedulerx.MasterKillContainerRequest{

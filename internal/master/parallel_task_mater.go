@@ -40,7 +40,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
-var _ taskmaster.ParallelTaskMaster = &ParallelTaskMaster{}
+var _ taskmaster.ParallelTaskMaster = (*ParallelTaskMaster)(nil)
 
 const batchSize = 256
 

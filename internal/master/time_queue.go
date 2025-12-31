@@ -38,21 +38,23 @@ func (q *TimeQueue) Add(timePlanEntry *TimePlanEntry) {
 	if !q.timeSet.Contains(timePlanEntry.UniqueID()) {
 		q.timeSet.Add(timePlanEntry.UniqueID())
 		q.timeQueue.PushItem(timePlanEntry)
-		logger.Infof("timeQueue add plan=%+v", timePlanEntry)
+		logger.Infof("timeQueue add plan=%s", timePlanEntry)
 	} else {
-		logger.Warnf("plan=%+v is existed in timeQueue", timePlanEntry)
+		logger.Warnf("plan=%s is existed in timeQueue", timePlanEntry)
 	}
 }
 
 func (q *TimeQueue) Remove(jobInstanceId int64) {
-	for q.timeQueue.Len() > 0 {
-		planEntry := q.timeQueue.Peek().(*TimePlanEntry)
+	q.timeQueue.RemoveBy(func(item utils.ComparatorItem) bool {
+		planEntry := item.(*TimePlanEntry)
 		if jobInstanceId == planEntry.jobInstanceId {
-			q.timeQueue.Pop()
+			// found item matched, remove from timeSet
 			q.timeSet.Remove(planEntry.UniqueID())
-			logger.Infof("planEntry=%+v removed, event.getTriggerType() != null", planEntry)
+			logger.Infof("planEntry=%s removed, event.getTriggerType() != null", planEntry)
+			return true
 		}
-	}
+		return false
+	})
 }
 
 // Peek return the head of this queue, or returns null if this queue is empty.
@@ -63,13 +65,10 @@ func (q *TimeQueue) Peek() *TimePlanEntry {
 	return nil
 }
 
-// RemoveHeader removes the head of this queue.
-func (q *TimeQueue) RemoveHeader() *TimePlanEntry {
-	var planEntry *TimePlanEntry
-	if item := q.timeQueue.Pop(); item != nil {
-		planEntry = item.(*TimePlanEntry)
-		q.timeSet.Remove(planEntry.UniqueID())
-	}
+// Pop removes the head of this queue.
+func (q *TimeQueue) Pop() *TimePlanEntry {
+	planEntry := q.timeQueue.PopItem().(*TimePlanEntry)
+	q.timeSet.Remove(planEntry.UniqueID())
 	return planEntry
 }
 

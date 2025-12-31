@@ -28,7 +28,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
-var _ ReqHandler = &BaseReqHandler{}
+var _ ReqHandler = (*BaseReqHandler)(nil)
 
 var globalPool, _ = ants.NewPool(
 	math.MaxInt32,

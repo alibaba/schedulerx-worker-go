@@ -17,7 +17,6 @@
 package master
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -36,7 +35,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
-var _ taskmaster.TaskMaster = &TaskMaster{}
+var _ taskmaster.TaskMaster = (*TaskMaster)(nil)
 
 type TaskMaster struct {
 	actorContext             actor.Context                `json:"actorContext,omitempty"`
@@ -254,7 +253,7 @@ func (m *TaskMaster) RetryTasks(taskEntities []schedulerx.RetryTaskEntity) {
 	return
 }
 
-func (m *TaskMaster) SubmitInstance(ctx context.Context, jobInstanceInfo *common.JobInstanceInfo) error {
+func (m *TaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceInfo) error {
 	// TODO Implement me
 	return nil
 }

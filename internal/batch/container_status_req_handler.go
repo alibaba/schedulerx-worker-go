@@ -42,11 +42,6 @@ func (h *ContainerStatusReqHandler) GetTaskMasterAkkaPath() string {
 	return h.taskMasterAkkaPath
 }
 
-type Pair struct {
-	jobInstanceId int64
-	serialNum     int64
-}
-
 func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []interface{}, workerAddr string) {
 	reqs := make([]*schedulerx.ContainerReportTaskStatusRequest, 0, len(requests))
 	for _, req := range requests {

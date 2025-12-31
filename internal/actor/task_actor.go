@@ -33,7 +33,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor"
 )
 
-var _ actor.Actor = &taskActor{}
+var _ actor.Actor = (*taskActor)(nil)
 
 // taskActor is the
 type taskActor struct {
