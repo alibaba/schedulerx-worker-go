@@ -31,7 +31,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
-var _ actor.Process = &taskProcessor{}
+var _ actor.Process = (*taskProcessor)(nil)
 
 type taskProcessor struct {
 	connpool pool.ConnPool

@@ -28,7 +28,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
-var _ processor.MapReduceJobProcessor = &TestMapReduceJob{}
+var _ processor.MapReduceJobProcessor = (*TestMapReduceJob)(nil)
 
 type OrderInfo struct {
 	Id    string `json:"id"`

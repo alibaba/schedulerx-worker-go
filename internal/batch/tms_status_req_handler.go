@@ -24,7 +24,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
-var _ ReqHandler = &TMStatusReqHandler{}
+var _ ReqHandler = (*TMStatusReqHandler)(nil)
 
 type TMStatusReqHandler struct {
 	*BaseReqHandler

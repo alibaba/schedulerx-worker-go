@@ -18,43 +18,43 @@ package utils
 
 import "sync"
 
-type ConcurrentSet struct {
-	set sync.Map
+type ConcurrentSet[T comparable] struct {
+	m sync.Map
 }
 
-func NewConcurrentSet() *ConcurrentSet {
-	return &ConcurrentSet{
-		set: sync.Map{},
+func NewConcurrentSet[T comparable]() *ConcurrentSet[T] {
+	return &ConcurrentSet[T]{
+		m: sync.Map{},
 	}
 }
 
-func (s *ConcurrentSet) Add(item interface{}) {
-	s.set.Store(item, struct{}{})
+func (s *ConcurrentSet[T]) Add(key T) {
+	s.m.Store(key, struct{}{})
 }
 
-func (s *ConcurrentSet) Remove(item interface{}) {
-	s.set.Delete(item)
+func (s *ConcurrentSet[T]) Remove(key T) {
+	s.m.Delete(key)
 }
 
-func (s *ConcurrentSet) Contains(item interface{}) bool {
-	_, ok := s.set.Load(item)
+func (s *ConcurrentSet[T]) Contains(key T) bool {
+	_, ok := s.m.Load(key)
 	return ok
 }
 
-func (s *ConcurrentSet) ToStringSlice() []string {
-	slice := make([]string, 0)
-	s.set.Range(func(key, value interface{}) bool {
-		k := key.(string)
-		slice = append(slice, k)
+func (s *ConcurrentSet[T]) Keys() []T {
+	keys := make([]T, 0)
+	s.m.Range(func(key, _ any) bool {
+		k := key.(T)
+		keys = append(keys, k)
 		return true
 	})
-	return slice
+	return keys
 }
 
-func (s *ConcurrentSet) Clear() {
-	s.set = sync.Map{}
+func (s *ConcurrentSet[T]) Clear() {
+	s.m = sync.Map{}
 }
 
-func (s *ConcurrentSet) Len() int {
-	return SyncMapLen(&s.set)
+func (s *ConcurrentSet[T]) Len() int {
+	return SyncMapLen(&s.m)
 }

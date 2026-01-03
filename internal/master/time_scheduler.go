@@ -38,8 +38,7 @@ func GetTimeScheduler() *TimeScheduler {
 // TimeScheduler is the client time scheduler, mainly used for second-level task scheduling.
 type TimeScheduler struct {
 	timeQueue *TimeQueue
-	inited    bool // no concurrency safe
-	lock      sync.RWMutex
+	once      sync.Once
 }
 
 func newTimeScheduler() *TimeScheduler {
@@ -49,21 +48,22 @@ func newTimeScheduler() *TimeScheduler {
 }
 
 func (s *TimeScheduler) init() {
-	if !s.isInited() {
+	s.once.Do(func() {
 		go s.timeScan()
 		logger.Infof("TimeScanThread started")
-		s.setInited(true)
-	}
+	})
 }
 
 func (s *TimeScheduler) timeScan() {
 	for {
 		now := time.Now().UnixMilli()
 		for !s.timeQueue.IsEmpty() {
-			if planEntry := s.timeQueue.Peek(); planEntry != nil && planEntry.ScheduleTimeStamp() <= now {
-				logger.Infof("%+v time ready", planEntry)
-				// 1. remove this from planQueue
-				s.timeQueue.RemoveHeader()
+			planEntry := s.timeQueue.Peek()
+			if planEntry != nil && planEntry.ScheduleTimeStamp() <= now {
+				// 1. pop this from timeQueue
+				planEntry = s.timeQueue.Pop()
+				logger.Infof("%s time ready", planEntry)
+
 				// 2. start this time based job
 				s.submitPlan(planEntry)
 			} else {
@@ -73,18 +73,6 @@ func (s *TimeScheduler) timeScan() {
 
 		time.Sleep(100 * time.Millisecond)
 	}
-}
-
-func (s *TimeScheduler) isInited() bool {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	return s.inited
-}
-
-func (s *TimeScheduler) setInited(flag bool) {
-	s.lock.Lock()
-	s.inited = flag
-	s.lock.Unlock()
 }
 
 func (s *TimeScheduler) add(planEntry *TimePlanEntry) {

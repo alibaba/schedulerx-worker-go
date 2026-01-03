@@ -28,7 +28,6 @@ type PriorityQueue struct {
 
 type ComparatorItem interface {
 	Priority() int64
-	Value() interface{}
 }
 
 func NewPriorityQueue(initialCapacity int) *PriorityQueue {
@@ -38,33 +37,28 @@ func NewPriorityQueue(initialCapacity int) *PriorityQueue {
 }
 
 func (pq *PriorityQueue) Len() int {
-	pq.mu.RLock()
-	defer pq.mu.RUnlock()
+	// Called by heap package, don't add lock
 	return len(pq.items)
 }
 
 func (pq *PriorityQueue) Less(i, j int) bool {
-	pq.mu.RLock()
-	defer pq.mu.RUnlock()
+	// Called by heap package, don't add lock
 	return pq.items[i].Priority() < pq.items[j].Priority()
 }
 
 func (pq *PriorityQueue) Swap(i, j int) {
-	pq.mu.Lock()
-	defer pq.mu.Unlock()
+	// Called by heap package, don't add lock
 	pq.items[i], pq.items[j] = pq.items[j], pq.items[i]
 }
 
 func (pq *PriorityQueue) Push(x interface{}) {
-	pq.mu.Lock()
-	defer pq.mu.Unlock()
+	// Called by heap package, don't add lock
 	item := x.(ComparatorItem)
 	pq.items = append(pq.items, item)
 }
 
 func (pq *PriorityQueue) Pop() interface{} {
-	pq.mu.Lock()
-	defer pq.mu.Unlock()
+	// Called by heap package, don't add lock
 	n := len(pq.items)
 	item := pq.items[n-1]
 	pq.items = pq.items[0 : n-1]
@@ -72,24 +66,52 @@ func (pq *PriorityQueue) Pop() interface{} {
 }
 
 func (pq *PriorityQueue) PushItem(item ComparatorItem) {
+	pq.mu.Lock()
+	defer pq.mu.Unlock()
 	heap.Push(pq, item)
 }
 
 func (pq *PriorityQueue) PopItem() ComparatorItem {
+	pq.mu.Lock()
+	defer pq.mu.Unlock()
 	return heap.Pop(pq).(ComparatorItem)
 }
 
 func (pq *PriorityQueue) Peek() ComparatorItem {
-	var ret ComparatorItem
-	if item := heap.Pop(pq); item != nil {
-		ret = item.(ComparatorItem)
-		heap.Push(pq, item)
+	pq.mu.RLock()
+	defer pq.mu.RUnlock()
+
+	if len(pq.items) > 0 {
+		return pq.items[0].(ComparatorItem)
 	}
-	return ret
+	return nil
 }
 
 func (pq *PriorityQueue) Clear() {
-	for pq.Len() > 0 {
-		pq.PopItem()
+	pq.mu.Lock()
+	defer pq.mu.Unlock()
+	pq.items = make([]ComparatorItem, 0)
+}
+
+// RemoveBy removes all items that satisfy the predicate function
+// Returns the number of removed items
+func (pq *PriorityQueue) RemoveBy(predicate func(ComparatorItem) bool) int {
+	pq.mu.Lock()
+	defer pq.mu.Unlock()
+
+	originalLen := len(pq.items)
+	filtered := make([]ComparatorItem, 0, originalLen)
+
+	// Iterate through all elements, keep those that don't match the removal condition
+	for _, item := range pq.items {
+		if !predicate(item) {
+			filtered = append(filtered, item)
+		}
 	}
+
+	// Rebuild the heap
+	pq.items = filtered
+	heap.Init(pq)
+
+	return originalLen - len(filtered)
 }

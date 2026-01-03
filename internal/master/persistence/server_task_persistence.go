@@ -35,7 +35,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
-var _ TaskPersistence = &ServerTaskPersistence{}
+var _ TaskPersistence = (*ServerTaskPersistence)(nil)
 
 type ServerTaskPersistence struct {
 	serverDiscovery *discovery.ServiceDiscover

@@ -37,7 +37,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
-var _ Container = &ThreadContainer{}
+var _ Container = (*ThreadContainer)(nil)
 
 type ThreadContainer struct {
 	jobCtx        *jobcontext.JobContext

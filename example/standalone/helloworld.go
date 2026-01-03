@@ -24,7 +24,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
 )
 
-var _ processor.Processor = &HelloWorld{}
+var _ processor.Processor = (*HelloWorld)(nil)
 
 type HelloWorld struct{}
 

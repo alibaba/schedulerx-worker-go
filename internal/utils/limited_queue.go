@@ -46,14 +46,11 @@ func (lq *LimitedQueue) Dequeue() *common.ProgressHistory {
 	return item
 }
 
-func (lq *LimitedQueue) Convert2Slice() []*common.ProgressHistory {
-	var ret []*common.ProgressHistory
-	for {
-		item := lq.Dequeue()
-		if item == nil {
-			break
-		}
-		ret = append(ret, item)
+func (lq *LimitedQueue) ArrayList() []*common.ProgressHistory {
+	if len(lq.queue) == 0 {
+		return []*common.ProgressHistory{}
 	}
-	return ret
+	result := make([]*common.ProgressHistory, len(lq.queue))
+	copy(result, lq.queue)
+	return result
 }

@@ -17,18 +17,20 @@
 package master
 
 import (
+	"fmt"
+
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 )
 
-var _ utils.ComparatorItem = &TimePlanEntry{}
+var _ utils.ComparatorItem = (*TimePlanEntry)(nil)
 
 type TimePlanEntry struct {
 	jobInstanceId     int64
 	scheduleTimeStamp int64
-	handler           *secondJobUpdateInstanceStatusHandler
+	handler           *SecondJobUpdateInstanceStatusHandler
 }
 
-func NewTimePlanEntry(jobInstanceId int64, scheduleTimeStamp int64, handler *secondJobUpdateInstanceStatusHandler) *TimePlanEntry {
+func NewTimePlanEntry(jobInstanceId int64, scheduleTimeStamp int64, handler *SecondJobUpdateInstanceStatusHandler) *TimePlanEntry {
 	return &TimePlanEntry{jobInstanceId: jobInstanceId, scheduleTimeStamp: scheduleTimeStamp, handler: handler}
 }
 
@@ -36,28 +38,20 @@ func (t *TimePlanEntry) JobInstanceId() int64 {
 	return t.jobInstanceId
 }
 
-func (t *TimePlanEntry) SetJobInstanceId(jobInstanceId int64) {
-	t.jobInstanceId = jobInstanceId
-}
-
 func (t *TimePlanEntry) ScheduleTimeStamp() int64 {
 	return t.scheduleTimeStamp
 }
 
-func (t *TimePlanEntry) SetScheduleTimeStamp(scheduleTimeStamp int64) {
-	t.scheduleTimeStamp = scheduleTimeStamp
-}
-
-func (t *TimePlanEntry) Handler() *secondJobUpdateInstanceStatusHandler {
+func (t *TimePlanEntry) Handler() *SecondJobUpdateInstanceStatusHandler {
 	return t.handler
 }
 
-func (t *TimePlanEntry) SetHandler(handler *secondJobUpdateInstanceStatusHandler) {
-	t.handler = handler
+func (t *TimePlanEntry) UniqueID() string {
+	return fmt.Sprintf("%d@%d", t.jobInstanceId, t.scheduleTimeStamp)
 }
 
-func (t *TimePlanEntry) Value() interface{} {
-	return t
+func (t *TimePlanEntry) String() string {
+	return fmt.Sprintf("TimePlanEntry [jobInstanceId=%d, scheduleTimeStamp=%d]", t.jobInstanceId, t.scheduleTimeStamp)
 }
 
 func (t *TimePlanEntry) Priority() int64 {

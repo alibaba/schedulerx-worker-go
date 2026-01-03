@@ -26,7 +26,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
-var _ processor.BroadcastProcessor = &TestBroadcast{}
+var _ processor.BroadcastProcessor = (*TestBroadcast)(nil)
 
 type TestBroadcast struct{}
 

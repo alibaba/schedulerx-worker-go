@@ -24,9 +24,9 @@ import (
 )
 
 func TestSyncMapLen(t *testing.T) {
-	var m *sync.Map
+	var m sync.Map
 
-	if length := SyncMapLen(m); length != 0 {
+	if length := SyncMapLen(&m); length != 0 {
 		t.Errorf("Expect=0，actual=%d", length)
 	}
 
@@ -34,13 +34,13 @@ func TestSyncMapLen(t *testing.T) {
 	m.Store("key2", "value2")
 	m.Store("key3", "value3")
 
-	if length := SyncMapLen(m); length != 3 {
+	if length := SyncMapLen(&m); length != 3 {
 		t.Errorf("Expect=3，actual=%d", length)
 	}
 
 	m.Delete("key2")
 
-	if length := SyncMapLen(m); length != 2 {
+	if length := SyncMapLen(&m); length != 2 {
 		t.Errorf("Expect=2，actual=%d", length)
 	}
 }

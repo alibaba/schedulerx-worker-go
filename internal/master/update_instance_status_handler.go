@@ -23,7 +23,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor"
 )
 
-var _ UpdateInstanceStatusHandler = &baseUpdateInstanceStatusHandler{}
+var _ UpdateInstanceStatusHandler = (*baseUpdateInstanceStatusHandler)(nil)
 
 type UpdateInstanceStatusHandler interface {
 	Handle(serialNum int64, newStatus processor.InstanceStatus, result string) error

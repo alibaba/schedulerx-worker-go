@@ -22,7 +22,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
-var _ TaskDispatchReqHandler = &TaskPullReqHandler{}
+var _ TaskDispatchReqHandler = (*TaskPullReqHandler)(nil)
 
 type TaskPullReqHandler struct {
 	*BaseTaskDispatchReqHandler

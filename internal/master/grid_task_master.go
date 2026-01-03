@@ -33,7 +33,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
 )
 
-var _ taskmaster.MapTaskMaster = &GridTaskMaster{}
+var _ taskmaster.MapTaskMaster = (*GridTaskMaster)(nil)
 
 type GridTaskMaster struct {
 	*MapTaskMaster

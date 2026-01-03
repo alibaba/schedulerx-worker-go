@@ -39,7 +39,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
-var _ actor.Actor = &jobInstanceActor{}
+var _ actor.Actor = (*jobInstanceActor)(nil)
 
 type jobInstanceActor struct {
 	connpool       pool.ConnPool
@@ -178,7 +178,7 @@ func (a *jobInstanceActor) handleSubmitJobInstance(actorCtx actor.Context, msg *
 
 			if taskMaster != nil {
 				masterpool.GetTaskMasterPool().Put(jobInstanceInfo.GetJobInstanceId(), taskMaster)
-				if err := taskMaster.SubmitInstance(msg.Ctx, jobInstanceInfo); err != nil {
+				if err := taskMaster.SubmitInstance(jobInstanceInfo); err != nil {
 					return err
 				}
 				logger.Infof("Submit jobInstanceId=%d succeed", req.GetJobInstanceId())
@@ -230,34 +230,31 @@ func convert2JobInstanceData(datas []*schedulerx.UpstreamData) []*common.JobInst
 }
 
 func (a *jobInstanceActor) handleKillJobInstance(actorCtx actor.Context, msg *actorcomm.SchedulerWrappedMsg) error {
-	var (
-		taskMasterPool = masterpool.GetTaskMasterPool()
-		req            = msg.Msg.(*schedulerx.ServerKillJobInstanceRequest)
-	)
+	req := msg.Msg.(*schedulerx.ServerKillJobInstanceRequest)
+	taskMasterPool := masterpool.GetTaskMasterPool()
 	logger.Infof("handleKillJobInstance, jobInstanceId=%d ", req.GetJobInstanceId())
+
+	var resp *schedulerx.ServerKillJobInstanceResponse
 	if !taskMasterPool.Contains(req.GetJobInstanceId()) {
 		errMsg := fmt.Sprintf("%d is not exist", req.GetJobInstanceId())
 		logger.Infof(errMsg)
-		resp := &schedulerx.ServerKillJobInstanceResponse{
-			Success: proto.Bool(true),
+		resp = &schedulerx.ServerKillJobInstanceResponse{
+			Success: proto.Bool(false),
 			Message: proto.String(errMsg),
 		}
-		actorCtx.Send(actorcomm.SchedulerxServerPid(msg.Ctx), actorcomm.WrapSchedulerxMsg(msg.Ctx, resp, msg.SenderPath))
 	} else {
-		if taskMaster := masterpool.GetTaskMasterPool().Get(req.GetJobInstanceId()); taskMaster != nil {
+		if taskMaster := taskMasterPool.Get(req.GetJobInstanceId()); taskMaster != nil {
 			if err := taskMaster.KillInstance("killed from server"); err != nil {
 				logger.Infof("%d killed from server failed, err=%s", req.GetJobInstanceId(), err.Error())
 			}
 		}
-		errMsg := fmt.Sprintf("%d killed from server", req.GetJobInstanceId())
-		logger.Infof(errMsg)
-		resp := &schedulerx.ServerKillJobInstanceResponse{
-			Success: proto.Bool(false), // FIXME true or false
-			Message: proto.String(errMsg),
+		resp = &schedulerx.ServerKillJobInstanceResponse{
+			Success: proto.Bool(true),
+			Message: proto.String("killed from server"),
 		}
-		actorCtx.Send(actorcomm.SchedulerxServerPid(msg.Ctx), actorcomm.WrapSchedulerxMsg(msg.Ctx, resp, msg.SenderPath))
 		logger.Infof("Kill jobInstanceId=%d succeed", req.GetJobInstanceId())
 	}
+	actorCtx.Send(actorcomm.SchedulerxServerPid(msg.Ctx), actorcomm.WrapSchedulerxMsg(msg.Ctx, resp, msg.SenderPath))
 	return nil
 }
 

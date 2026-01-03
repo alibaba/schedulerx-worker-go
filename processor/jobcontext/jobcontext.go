@@ -24,7 +24,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
-var _ context.Context = &JobContext{}
+var _ context.Context = (*JobContext)(nil)
 
 type JobContext struct {
 	context.Context

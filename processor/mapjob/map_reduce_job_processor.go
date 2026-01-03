@@ -21,7 +21,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
 )
 
-var _ processor.MapReduceJobProcessor = &MapReduceJobProcessor{}
+var _ processor.MapReduceJobProcessor = (*MapReduceJobProcessor)(nil)
 
 type MapReduceJobProcessor struct {
 	*MapJobProcessor
