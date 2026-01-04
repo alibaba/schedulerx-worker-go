@@ -76,6 +76,8 @@ func (a *containerActor) Receive(actorCtx actor.Context) {
 		a.handleKillContainer(actorCtx, msg)
 	case *schedulerx.MasterDestroyContainerPoolRequest:
 		a.handleDestroyContainerPool(actorCtx, msg)
+	case actor.SystemMessage:
+		return
 	default:
 		logger.Warnf("[containerActor] receive unknown message, msg=%+v", actorCtx.Message())
 	}
