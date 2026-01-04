@@ -162,7 +162,15 @@ func (m *StandaloneTaskMaster) selectWorker() string {
 
 func (m *StandaloneTaskMaster) KillInstance(reason string) error {
 	_ = m.TaskMaster.KillInstance(reason)
+	m.sendKillContainerRequest()
+	_ = m.updateNewInstanceStatus(m.GetSerialNum(), m.jobInstanceInfo.GetJobInstanceId(), processor.InstanceStatusFailed, reason)
+	if !m.instanceStatus.IsFinished() {
+		m.instanceStatus = processor.InstanceStatusFailed
+	}
+	return nil
+}
 
+func (m *StandaloneTaskMaster) sendKillContainerRequest() {
 	uniqueId := utils.GetUniqueIdWithoutTaskId(m.jobInstanceInfo.GetJobId(), m.jobInstanceInfo.GetJobInstanceId())
 	req := &schedulerx.MasterKillContainerRequest{
 		JobId:                 proto.Int64(m.jobInstanceInfo.GetJobId()),
@@ -172,26 +180,17 @@ func (m *StandaloneTaskMaster) KillInstance(reason string) error {
 
 	response, err := m.actorContext.RequestFuture(actorcomm.GetContainerRouterPid(m.currentSelection), req, 10*time.Second).Result()
 	if err != nil {
-		return fmt.Errorf("send kill instance request exception, workerAddr=%s, uniqueId=%s, err=%s", m.currentSelection, uniqueId, err.Error())
+		logger.Errorf("send kill instance request exception, workerAddr=%s, uniqueId=%s, err=%s", m.currentSelection, uniqueId, err.Error())
+		return
 	}
 	resp, ok := response.(*schedulerx.MasterKillContainerResponse)
 	if !ok {
-		return fmt.Errorf("response is not MasterKillContainerResponse, resp=%+v", response)
+		logger.Errorf("response is not MasterKillContainerResponse, resp=%+v", response)
+		return
 	}
 	if resp.GetSuccess() {
 		logger.Infof("Standalone taskMaster kill instance succeed, workerAddr=%s, uniqueId=%s", m.currentSelection, uniqueId)
-		return nil
 	}
-
-	if err = m.updateNewInstanceStatus(m.GetSerialNum(), m.jobInstanceInfo.GetJobInstanceId(), processor.InstanceStatusFailed, reason); err != nil {
-		return fmt.Errorf("UpdateNewInstanceStatus failed, err=%s", err.Error())
-	}
-	if !m.instanceStatus.IsFinished() {
-		m.lock.Lock()
-		m.instanceStatus = processor.InstanceStatusFailed
-		m.lock.Unlock()
-	}
-	return nil
 }
 
 func (m *StandaloneTaskMaster) DestroyContainerPool() {

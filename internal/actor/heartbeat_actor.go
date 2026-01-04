@@ -63,6 +63,8 @@ func (a *heartbeatActor) Receive(ctx actor.Context) {
 		a.handleCheckWorkerAlive(ctx, msg)
 	case *schedulerx.ContainerCheckZombieRequest:
 		a.handleCheckZombie(ctx, msg)
+	case actor.SystemMessage:
+		return
 	default:
 		logger.Warnf("[heartbeatActor] receive unknown message, msg=%+v", ctx.Message())
 	}

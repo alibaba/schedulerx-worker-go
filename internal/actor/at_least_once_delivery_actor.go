@@ -52,6 +52,8 @@ func (a *atLeastOnceDeliveryRoutingActor) Receive(actorCtx actor.Context) {
 		logger.Infof("Receive ContainerBatchReportTaskStatuesResponse, resp=%+v", innerMsg)
 	case *schedulerx.MasterDestroyContainerPoolResponse:
 		logger.Infof("Receive MasterDestroyContainerPoolResponse, resp=%+v", innerMsg)
+	case actor.SystemMessage:
+		return
 	default:
 		logger.Errorf("Receive unknown message in atLeastOnceDeliveryRoutingActor, msg=%+v", msg)
 	}

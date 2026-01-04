@@ -183,11 +183,11 @@ func (h *SecondJobUpdateInstanceStatusHandler) getAllWorkers(appGroupId, jobId i
 
 func (h *SecondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceStatus processor.InstanceStatus, result string) error {
 	cycleId := utils.GetUniqueId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId(), h.taskMaster.GetSerialNum())
-	logger.Infof("cycleId:%s instanceStatus=%d cycle update status.", cycleId, instanceStatus)
+	logger.Infof("cycleId:%s instanceStatus=%d result=%s cycle update status.", cycleId, instanceStatus, result)
 
 	// if init failed, instance status finished and master has not been killed, so second job kill self
 	if !h.taskMaster.IsInited() && instanceStatus.IsFinished() && !h.taskMaster.IsKilled() {
-		h.taskMaster.KillInstance("killed, because of worker init failed.")
+		_ = h.taskMaster.KillInstance("killed, because of worker init failed.")
 		logger.Warnf("Init failed need to kill self, cycleId=%s", cycleId)
 		return nil
 	}
@@ -211,10 +211,7 @@ func (h *SecondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 			if result != "" {
 				req.Result = proto.String(result)
 			}
-			progress, err := h.getJobInstanceProgress()
-			if err != nil {
-				return fmt.Errorf("cycleId:%s instanceStatus=%d cycle update status failed due to getJobInstanceProgress failed, err=%s", cycleId, instanceStatus, err.Error())
-			}
+			progress, _ := h.getJobInstanceProgress()
 			if progress != "" {
 				req.Progress = proto.String(progress)
 			}
@@ -266,7 +263,7 @@ func (h *SecondJobUpdateInstanceStatusHandler) triggerNextCycle(cycleId string, 
 		// Calculate the next scheduling time and add it to the time scheduler
 		delayTime, err := strconv.Atoi(h.jobInstanceInfo.GetTimeExpression())
 		if err != nil {
-			h.taskMaster.KillInstance("killed, because of cycle submit failed.")
+			_ = h.taskMaster.KillInstance("killed, because of cycle submit failed.")
 			logger.Errorf("cycleId=%s cycle submit failed, need to kill, err=%s", cycleId, err.Error())
 			return
 		}
@@ -357,6 +354,12 @@ func (h *SecondJobUpdateInstanceStatusHandler) setHistory(serialNum int64, loopS
 
 // Schedule a new iteration
 func (h *SecondJobUpdateInstanceStatusHandler) triggerNewCycle() {
+	// Check if instance is killed at the very beginning
+	if h.taskMaster.IsKilled() {
+		logger.Warnf("triggerNewCycle cancelled, jobInstanceId=%d is killed.", h.jobInstanceInfo.GetJobInstanceId())
+		return
+	}
+
 	cycleId := utils.GetUniqueId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId(), h.taskMaster.AcquireSerialNum())
 	logger.Infof("cycleId:%s cycle begin.", cycleId)
 	h.cycleStartTime = time.Now().UnixMilli()
