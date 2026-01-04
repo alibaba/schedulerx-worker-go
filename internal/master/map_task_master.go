@@ -252,7 +252,7 @@ func (m *MapTaskMaster) checkInstanceStatus() {
 		}
 
 		if err := m.updateNewInstanceStatus(m.GetSerialNum(), m.GetJobInstanceInfo().GetJobInstanceId(), newStatus, result); err != nil {
-			logger.Errorf("updateNewInstanceStatus failed, serialNum=%v, jobInstanceId=%v, newStatus=%v, result=%v, err=%s",
+			logger.Errorf("updateNewInstanceStatus failed, serialNum=%d, jobInstanceId=%d, newStatus=%d, result=%s, err=%s",
 				m.GetSerialNum(), m.GetJobInstanceInfo().GetJobInstanceId(), newStatus, result, err.Error())
 		}
 	}
@@ -366,7 +366,7 @@ func (m *MapTaskMaster) notifyWorkerPull() {
 			}
 			if resp := response.(*schedulerx.MasterNotifyWorkerPullResponse); !resp.GetSuccess() {
 				errorMsg := resp.GetMessage()
-				logger.Errorf("notify worker pull failed, jobInstanceId=%d", m.GetJobInstanceInfo().GetJobInstanceId(), errorMsg)
+				logger.Errorf("notify worker pull failed, jobInstanceId=%d, err=%s", m.GetJobInstanceInfo().GetJobInstanceId(), errorMsg)
 				m.updateNewInstanceStatus(m.GetSerialNum(), m.GetJobInstanceInfo().GetJobInstanceId(), processor.InstanceStatusFailed, errorMsg)
 			}
 		}

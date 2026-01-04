@@ -79,7 +79,8 @@ func (m *BroadcastTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstance
 	if err := m.preProcess(jobInstanceInfo); err != nil {
 		logger.Errorf("BroadcastTaskMaster.preProcess failed, jobInstanceId=%d, err=%s", jobInstanceInfo.GetJobInstanceId(), err.Error())
 		if e := m.TaskMaster.updateNewInstanceStatus(m.GetSerialNum(), m.jobInstanceInfo.GetJobInstanceId(), processor.InstanceStatusFailed, "Preprocess failed. "+err.Error()); e != nil {
-			logger.Errorf("updateNewInstanceStatus failed after BroadcastTaskMaster.preProcess, jobInstanceId=%v, serialNum=%v, status=%v, err=%s", e.Error())
+			logger.Errorf("updateNewInstanceStatus failed after BroadcastTaskMaster.preProcess, jobInstanceId=%v, serialNum=%d, status=%d, err=%s",
+				m.jobInstanceInfo.GetJobInstanceId(), m.GetSerialNum(), processor.InstanceStatusFailed, e.Error())
 		}
 	}
 
@@ -209,11 +210,9 @@ func (m *BroadcastTaskMaster) KillInstance(reason string) error {
 			m.actorContext.Send(actorcomm.GetContainerRouterPid(workerAddr), req)
 		}
 	}
-	if err := m.TaskMaster.updateNewInstanceStatus(m.GetSerialNum(), m.jobInstanceInfo.GetJobInstanceId(), processor.InstanceStatusFailed, reason); err != nil {
-		return fmt.Errorf("updateNewInstanceStatus failed, err=%s", err.Error())
-	}
+	_ = m.TaskMaster.updateNewInstanceStatus(m.GetSerialNum(), m.jobInstanceInfo.GetJobInstanceId(), processor.InstanceStatusFailed, reason)
 
-	// Clear the taskStatusMap, and directly end the task.
+	// 将taskStatusMap清空，可以直接把任务置为结束
 	m.taskStatusMap = sync.Map{}
 
 	return nil
@@ -307,8 +306,8 @@ func (m *BroadcastTaskMaster) updateNewInstanceStatus(serialNum int64, jobInstan
 		}
 	}
 
-	logger.Infof("update serialNum=%v, jobInstanceId=%v status=%v", serialNum, jobInstanceId, newStatus.Descriptor())
-	m.TaskMaster.updateNewInstanceStatus(serialNum, jobInstanceId, newStatus, result)
+	logger.Infof("update serialNum=%d, jobInstanceId=%d status=%s", serialNum, jobInstanceId, newStatus.Descriptor())
+	_ = m.TaskMaster.updateNewInstanceStatus(serialNum, jobInstanceId, newStatus, result)
 }
 
 func (m *BroadcastTaskMaster) GetJobInstanceProgress() (string, error) {

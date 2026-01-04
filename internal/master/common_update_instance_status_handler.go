@@ -17,6 +17,8 @@
 package master
 
 import (
+	"strings"
+
 	"github.com/asynkron/protoactor-go/actor"
 	"google.golang.org/protobuf/proto"
 
@@ -43,71 +45,73 @@ func NewCommonUpdateInstanceStatusHandler(actorContext actor.Context, taskMaster
 	}
 }
 
-func (rcvr *commonUpdateInstanceStatusHandler) Handle(serialNum int64, instanceStatus processor.InstanceStatus, result string) error {
-	jobInstanceId := rcvr.jobInstanceInfo.GetJobInstanceId()
-	uniqueId := utils.GetUniqueIdWithoutTaskId(rcvr.jobInstanceInfo.GetJobId(), jobInstanceId)
+func (h *commonUpdateInstanceStatusHandler) Handle(serialNum int64, instanceStatus processor.InstanceStatus, result string) error {
+	jobInstanceId := h.jobInstanceInfo.GetJobInstanceId()
 
-	if rcvr.taskMaster.GetInstanceStatus() != instanceStatus {
-		rcvr.taskMaster.SetInstanceStatus(instanceStatus)
+	if h.taskMaster.GetInstanceStatus() != instanceStatus {
+		h.taskMaster.SetInstanceStatus(instanceStatus)
 		if instanceStatus.IsFinished() {
-			postResult := rcvr.taskMaster.PostFinish(jobInstanceId)
+			postResult := h.taskMaster.PostFinish(jobInstanceId)
 			if postResult != nil {
 				if instanceStatus == processor.InstanceStatusSucceed && postResult.Status() == processor.InstanceStatusFailed {
 					instanceStatus = processor.InstanceStatusFailed
 				}
-				if postResult.Result() != "" {
+				if postResult.Result() != "" && !strings.Contains(result, "Worker master shutdown") {
 					result = postResult.Result()
 				}
 			}
 
-			// report job instance status with at-least-once-delivery
-			req := &schedulerx.WorkerReportJobInstanceStatusRequest{
-				JobId:         proto.Int64(rcvr.jobInstanceInfo.GetJobId()),
-				JobInstanceId: proto.Int64(jobInstanceId),
-				Status:        proto.Int32(int32(instanceStatus)),
-				DeliveryId:    proto.Int64(utils.GetDeliveryId()),
-				GroupId:       proto.String(rcvr.jobInstanceInfo.GetGroupId()),
-			}
-			if result != "" {
-				req.Result = proto.String(result)
-			}
-			progress, err := rcvr.taskMaster.GetJobInstanceProgress()
-			if err == nil {
-				req.Progress = proto.String(progress)
-			} else {
-				logger.Warnf("report job instance status with at-least-once-delivery failed, due to GetJobInstanceProgress is empty")
-			}
+			if result != "killed from server" {
+				// 对服务端强制停止操作不做状态反馈
+				// report job instance status with at-least-once-delivery
+				req := &schedulerx.WorkerReportJobInstanceStatusRequest{
+					JobId:         proto.Int64(h.jobInstanceInfo.GetJobId()),
+					JobInstanceId: proto.Int64(jobInstanceId),
+					Status:        proto.Int32(int32(instanceStatus)),
+					DeliveryId:    proto.Int64(utils.GetDeliveryId()),
+					GroupId:       proto.String(h.jobInstanceInfo.GetGroupId()),
+				}
+				if result != "" {
+					req.Result = proto.String(result)
+				}
+				progress, err := h.taskMaster.GetJobInstanceProgress()
+				if err == nil {
+					req.Progress = proto.String(progress)
+				} else {
+					logger.Warnf("report job instance status with at-least-once-delivery failed, due to GetJobInstanceProgress is empty")
+				}
 
-			actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
-				Msg: req,
+				actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
+					Msg: req,
+				}
+				logger.Infof("report jobInstance=%d, status=%d to AtLeastDeliveryRoutingActor", jobInstanceId, instanceStatus)
 			}
-			logger.Infof("report jobInstance=%d, status=%d to AtLeastDeliveryRoutingActor", jobInstanceId, instanceStatus)
 
 			// destroy containers and taskMaster
-			rcvr.taskMaster.DestroyContainerPool()
-			if taskMaster := rcvr.masterPool.Get(jobInstanceId); taskMaster != nil {
+			h.taskMaster.DestroyContainerPool()
+			if taskMaster := h.masterPool.Get(jobInstanceId); taskMaster != nil {
 				taskMaster.Stop()
-				rcvr.masterPool.Remove(jobInstanceId)
+				h.masterPool.Remove(jobInstanceId)
 			}
-
+			uniqueId := utils.GetUniqueIdWithoutTaskId(h.jobInstanceInfo.GetJobId(), jobInstanceId)
 			logger.Infof("uniqueId: %s is finished, remove from MasterPool.", uniqueId)
 		}
 	}
-	progress, err := rcvr.taskMaster.GetJobInstanceProgress()
+	progress, err := h.taskMaster.GetJobInstanceProgress()
 	if err != nil {
 		logger.Warnf("report job instance status with at-least-once-delivery failed, due to GetJobInstanceProgress is empty")
 	}
 
-	_, ok := rcvr.taskMaster.(*StandaloneTaskMaster)
+	_, ok := h.taskMaster.(*StandaloneTaskMaster)
 	if ok && !instanceStatus.IsFinished() && progress != "" {
 		// report job instance status with at-least-once-delivery
 		reportStatusReq := &schedulerx.WorkerReportJobInstanceStatusRequest{
-			JobId:         proto.Int64(rcvr.jobInstanceInfo.GetJobId()),
+			JobId:         proto.Int64(h.jobInstanceInfo.GetJobId()),
 			JobInstanceId: proto.Int64(jobInstanceId),
 			Status:        proto.Int32(int32(instanceStatus)),
 			Progress:      proto.String(progress),
 			DeliveryId:    proto.Int64(utils.GetDeliveryId()),
-			GroupId:       proto.String(rcvr.jobInstanceInfo.GetGroupId()),
+			GroupId:       proto.String(h.jobInstanceInfo.GetGroupId()),
 		}
 		if result != "" {
 			reportStatusReq.Result = proto.String(result)
