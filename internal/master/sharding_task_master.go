@@ -165,7 +165,7 @@ func (m *ShardingTaskMaster) BatchHandlePulledProgress(masterStartContainerReque
 			if _, ok := worker2ReqsWithNormal[workerIdAddr]; !ok {
 				worker2ReqsWithNormal[workerIdAddr] = []*schedulerx.MasterStartContainerRequest{request}
 			} else {
-				worker2ReqsWithNormal[workerIdAddr] = append(worker2ReqsWithFailover[workerIdAddr], request)
+				worker2ReqsWithNormal[workerIdAddr] = append(worker2ReqsWithNormal[workerIdAddr], request)
 			}
 
 			if counter, ok := m.taskProgressMap.Load(request.GetTaskName()); ok {

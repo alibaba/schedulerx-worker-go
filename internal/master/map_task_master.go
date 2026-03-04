@@ -725,7 +725,7 @@ func (m *MapTaskMaster) batchHandleRunningProgress(masterStartContainerRequests 
 			if _, ok := worker2ReqsWithNormal[workerIdAddr]; !ok {
 				worker2ReqsWithNormal[workerIdAddr] = []*schedulerx.MasterStartContainerRequest{request}
 			} else {
-				worker2ReqsWithNormal[workerIdAddr] = append(worker2ReqsWithFailover[workerIdAddr], request)
+				worker2ReqsWithNormal[workerIdAddr] = append(worker2ReqsWithNormal[workerIdAddr], request)
 			}
 		}
 		if val, ok := m.taskProgressMap.Load(request.GetTaskName()); ok {
