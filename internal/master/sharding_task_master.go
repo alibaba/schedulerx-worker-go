@@ -32,7 +32,6 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
-	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 	"github.com/alibaba/schedulerx-worker-go/processor"
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
@@ -41,16 +40,13 @@ var _ taskmaster.MapTaskMaster = (*ShardingTaskMaster)(nil)
 
 type ShardingTaskMaster struct {
 	*GridTaskMaster
-	actorCtx              actor.Context
 	parameters            []string
-	shardingTaskStatusMap *sync.Map // Map<Long, ShardingTaskStatus>
+	shardingTaskStatusMap sync.Map // Map<Long, ShardingTaskStatus>
 }
 
 func NewShardingTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) *ShardingTaskMaster {
 	return &ShardingTaskMaster{
-		GridTaskMaster:        NewGridTaskMaster(jobInstanceInfo, actorCtx),
-		actorCtx:              actorCtx,
-		shardingTaskStatusMap: new(sync.Map),
+		GridTaskMaster: NewGridTaskMaster(jobInstanceInfo, actorCtx),
 	}
 }
 
@@ -191,7 +187,7 @@ func (m *ShardingTaskMaster) BatchHandlePulledProgress(masterStartContainerReque
 }
 
 func (m *ShardingTaskMaster) GetJobInstanceProgress() (string, error) {
-	shardingTaskStatusList := make([]*taskstatus.ShardingTaskStatus, 0, utils.SyncMapLen(m.shardingTaskStatusMap))
+	shardingTaskStatusList := make([]*taskstatus.ShardingTaskStatus, 0)
 	m.shardingTaskStatusMap.Range(func(shardingId, shardingTaskStatus any) bool {
 		shardingTaskStatusList = append(shardingTaskStatusList, shardingTaskStatus.(*taskstatus.ShardingTaskStatus))
 		return true
@@ -217,7 +213,5 @@ func (m *ShardingTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessR
 
 func (m *ShardingTaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
 	m.GridTaskMaster.Clear(taskMaster)
-	if m.shardingTaskStatusMap != nil {
-		m.shardingTaskStatusMap = nil
-	}
+	m.shardingTaskStatusMap = sync.Map{}
 }

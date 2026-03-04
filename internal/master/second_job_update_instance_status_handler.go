@@ -77,7 +77,15 @@ func (h *SecondJobUpdateInstanceStatusHandler) init() {
 func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 	intervalTimes := 0
 	jobIdAndInstanceId := utils.GetUniqueIdWithoutTaskId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId())
-	for !h.taskMaster.IsKilled() {
+	for {
+		// taskMaster may not be fully initialized yet, check nil to avoid panic
+		if h.taskMaster == nil {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		if h.taskMaster.IsKilled() {
+			break
+		}
 		time.Sleep(1 * time.Second)
 		intervalTimes++
 		if intervalTimes > 10 {
@@ -319,7 +327,7 @@ func (h *SecondJobUpdateInstanceStatusHandler) setHistory(serialNum int64, loopS
 		workerProgressCounterMap.Range(func(key, value any) bool {
 			counter := value.(*common.WorkerProgressCounter)
 
-			newCounter := new(common.TaskProgressCounter)
+			newCounter := common.NewTaskProgressCounter(counter.GetWorkerAddr())
 			newCounter.IncrementSuccess(counter.GetSuccess())
 			newCounter.IncrementFailed(counter.GetFailed())
 			newCounter.IncrementTotal(counter.GetTotal())

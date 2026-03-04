@@ -53,20 +53,20 @@ func GetThreadContainerPool() *ThreadContainerPool {
 }
 
 type ThreadContainerPool struct {
-	containerMap       *sync.Map // map[string]Container
-	jobInstanceLockMap *sync.Map // map[int64]*JobInstanceLock
+	containerMap       sync.Map // map[string]Container
+	jobInstanceLockMap sync.Map // map[int64]*JobInstanceLock
 	jobCtx             *jobcontext.JobContext
 }
 
 func newTreadContainerPool() *ThreadContainerPool {
 	return &ThreadContainerPool{
-		containerMap:       new(sync.Map),
-		jobInstanceLockMap: new(sync.Map),
+		containerMap:       sync.Map{},
+		jobInstanceLockMap: sync.Map{},
 	}
 }
 
 func (p *ThreadContainerPool) GetContainerMap() *sync.Map {
-	return p.containerMap
+	return &p.containerMap
 }
 
 func (p *ThreadContainerPool) Submit(jobId, jobInstanceId, taskId int64, container Container) (err error) {

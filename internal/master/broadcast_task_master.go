@@ -17,6 +17,7 @@
 package master
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -45,25 +46,25 @@ var _ taskmaster.TaskMaster = (*BroadcastTaskMaster)(nil)
 
 type BroadcastTaskMaster struct {
 	*TaskMaster
-	worker2uniqueIdMap *sync.Map // Map<String, String>
-	workerProgressMap  *sync.Map // Map<String, WorkerProgressCounter>
 	running            bool
 	monitor            bool
-	taskIdResultMap    *sync.Map // Map<Long, String>
-	taskIdStatusMap    *sync.Map // Map<Long, TaskStatus>
 	allWorkers         []string
+	worker2uniqueIdMap sync.Map // Map<String, String>
 	lock               sync.RWMutex
+	workerProgressMap  sync.Map // Map<String, WorkerProgressCounter>
+	taskIdResultMap    sync.Map // Map<Long, String>
+	taskIdStatusMap    sync.Map // Map<Long, TaskStatus>
+	cycleCtx           context.Context
+	cycleCancel        context.CancelFunc
 }
 
 func NewBroadcastTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) taskmaster.TaskMaster {
 	broadcastTaskMaster := &BroadcastTaskMaster{
-		worker2uniqueIdMap: new(sync.Map),
-		workerProgressMap:  new(sync.Map),
-		running:            false,
-		monitor:            false,
-		taskIdResultMap:    new(sync.Map),
-		taskIdStatusMap:    new(sync.Map),
-		allWorkers:         []string{},
+		running:    false,
+		monitor:    false,
+		allWorkers: []string{},
+		cycleCtx:   context.Background(),
+		cycleCancel: func() {},
 	}
 
 	statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, broadcastTaskMaster, jobInstanceInfo)
@@ -312,7 +313,7 @@ func (m *BroadcastTaskMaster) updateNewInstanceStatus(serialNum int64, jobInstan
 
 func (m *BroadcastTaskMaster) GetJobInstanceProgress() (string, error) {
 	detail := common.NewMapTaskProgress()
-	counters := make([]*common.WorkerProgressCounter, 0, utils.SyncMapLen(m.workerProgressMap))
+	counters := make([]*common.WorkerProgressCounter, 0)
 
 	m.workerProgressMap.Range(func(_, val interface{}) bool {
 		counters = append(counters, val.(*common.WorkerProgressCounter))
@@ -336,22 +337,35 @@ func (m *BroadcastTaskMaster) startMonitorThreads() {
 	if m.running {
 		return
 	}
-	//jobIdAndInstanceId := fmt.Sprintf("%v_%v", m.jobInstanceInfo.GetJobId(), m.jobInstanceInfo.GetJobInstanceId())
+
+	// Initialize context for this cycle
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cycleCtx = ctx
+	m.cycleCancel = cancel
 
 	// check if worker is alive
-	go m.checkWorkerAlive()
+	go m.checkWorkerAlive(ctx)
 
 	// report job instance progress
-	go m.reportJobInstanceProgress()
+	go m.reportJobInstanceProgress(ctx)
 
 	// check instance status
-	go m.checkInstanceStatus()
+	go m.checkInstanceStatus(ctx)
 
 	m.running = true
 }
 
-func (m *BroadcastTaskMaster) checkWorkerAlive() {
-	for !m.isInstanceStatusFinished() {
+func (m *BroadcastTaskMaster) checkWorkerAlive(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Infof("checkWorkerAlive exit, jobInstanceId=%d", m.jobInstanceInfo.GetJobInstanceId())
+			return
+		default:
+		}
+		if m.isInstanceStatusFinished() {
+			return
+		}
 		if !m.isMonitor() {
 			continue
 		}
@@ -399,12 +413,25 @@ func (m *BroadcastTaskMaster) checkWorkerAlive() {
 			}
 		}
 
-		time.Sleep(10 * time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
 	}
 }
 
-func (m *BroadcastTaskMaster) reportJobInstanceProgress() {
-	for !m.isInstanceStatusFinished() {
+func (m *BroadcastTaskMaster) reportJobInstanceProgress(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Infof("reportJobInstanceProgress exit, jobInstanceId=%d", m.jobInstanceInfo.GetJobInstanceId())
+			return
+		default:
+		}
+		if m.isInstanceStatusFinished() {
+			return
+		}
 		progress, err := m.GetJobInstanceProgress()
 		if err != nil {
 			logger.Errorf("reportJobInstanceProgress failed, err=%s", err.Error())
@@ -422,36 +449,56 @@ func (m *BroadcastTaskMaster) reportJobInstanceProgress() {
 			Msg: req,
 		}
 
-		time.Sleep(5 * time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
 	}
 }
 
-func (m *BroadcastTaskMaster) checkInstanceStatus() {
-	for !m.isInstanceStatusFinished() {
-		time.Sleep(5 * time.Second)
+func (m *BroadcastTaskMaster) checkInstanceStatus(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Infof("checkInstanceStatus exit, jobInstanceId=%d", m.jobInstanceInfo.GetJobInstanceId())
+			return
+		case <-time.After(5 * time.Second):
+		}
+
+		if m.isInstanceStatusFinished() {
+			return
+		}
 
 		if !m.isMonitor() {
 			continue
 		}
 
 		if utils.SyncMapLen(&m.taskStatusMap) < 10 {
-			logger.Infof("taskStatusMap=%+v", m.taskStatusMap)
+			logger.Infof("taskStatusMap len=%d", utils.SyncMapLen(&m.taskStatusMap))
 		}
 		m.updateNewInstanceStatus(m.GetSerialNum(), m.jobInstanceInfo.GetJobInstanceId(), "")
 	}
 }
 
 func (m *BroadcastTaskMaster) GetWorkerProgressMap() *sync.Map {
-	return m.workerProgressMap
+	return &m.workerProgressMap
 }
 
 func (m *BroadcastTaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
+	// Cancel the current cycle's goroutines
+	m.cycleCancel()
+
 	m.TaskMaster.Clear(taskMaster)
-	m.worker2uniqueIdMap = new(sync.Map)
-	m.workerProgressMap = new(sync.Map)
-	m.taskIdResultMap = new(sync.Map)
-	m.taskIdStatusMap = new(sync.Map)
+	m.worker2uniqueIdMap = sync.Map{}
+	m.workerProgressMap = sync.Map{}
+	m.taskIdResultMap = sync.Map{}
+	m.taskIdStatusMap = sync.Map{}
 	m.monitor = false
+	m.running = false
+	// Reset ctx for the next cycle (a new ctx will be created in startMonitorThreads())
+	m.cycleCtx = context.Background()
+	m.cycleCancel = func() {}
 }
 
 func (m *BroadcastTaskMaster) preProcess(jobInstanceInfo *common.JobInstanceInfo) error {

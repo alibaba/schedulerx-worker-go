@@ -29,12 +29,12 @@ type WorkerProgressCounter struct {
 
 func NewWorkerProgressCounter(workerAddr string) (c *WorkerProgressCounter) {
 	return &WorkerProgressCounter{
+		WorkerAddr: workerAddr,
 		Total:      atomic.NewInt64(0),
 		Pulled:     atomic.NewInt64(0),
 		Running:    atomic.NewInt64(0),
 		Success:    atomic.NewInt64(0),
 		Failed:     atomic.NewInt64(0),
-		WorkerAddr: workerAddr,
 	}
 }
 
