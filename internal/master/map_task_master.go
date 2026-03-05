@@ -17,6 +17,7 @@
 package master
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,8 +41,6 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
 	"github.com/alibaba/schedulerx-worker-go/internal/masterpool"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
-	"github.com/alibaba/schedulerx-worker-go/internal/remoting/pool"
-	"github.com/alibaba/schedulerx-worker-go/internal/tasks"
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 	"github.com/alibaba/schedulerx-worker-go/processor"
@@ -55,15 +54,12 @@ var (
 
 type MapTaskMaster struct {
 	*TaskMaster
-	actorCtx              actor.Context
-	taskMasterPoolCleaner func(int64)
-	tasks                 *tasks.TaskMap
-	connpool              pool.ConnPool
-	pageSize              int32
-	queueSize             int64
-	dispatcherSize        int64
-	index                 int
-	taskStatusReqQueue    *batch.ReqQueue
+	actorCtx           actor.Context
+	pageSize           int32
+	queueSize          int64
+	dispatcherSize     int64
+	index              int
+	taskStatusReqQueue *batch.ReqQueue
 	// task batch reporting queue, item: ContainerReportTaskStatusRequest
 	taskStatusReqBatchHandler *batch.TMStatusReqHandler
 	// Subtask memory cache queue, the push model is pulled and pushed actively through TaskDispatchReqHandler,
@@ -71,43 +67,30 @@ type MapTaskMaster struct {
 	taskBlockingQueue      *batch.ReqQueue
 	taskDispatchReqHandler batch.TaskDispatchReqHandler
 	// Handle task failure separately
-	rootTaskResult  string
-	taskPersistence persistence.TaskPersistence
-	// map[string]*common.TaskProgressCounter
-	taskProgressMap *sync.Map
-	// map[string]*common.WorkerProgressCounter
-	workerProgressMap   *sync.Map
-	taskResultMap       map[int64]string
-	taskStatusMap       map[int64]taskstatus.TaskStatus
+	rootTaskResult      string
+	taskPersistence     persistence.TaskPersistence
+	taskProgressMap     sync.Map // key: string taskName, val: *common.TaskProgressCounter
+	workerProgressMap   sync.Map // key: string workerAddr, val: *common.WorkerProgressCounter
+	taskResultMap       sync.Map // key: int64 taskId, val: string result
+	taskStatusMap       sync.Map // key: int64 taskId, val: taskstatus.TaskStatus
 	xAttrs              *common.MapTaskXAttrs
 	taskCounter         *atomic.Int64
 	localTaskRouterPath string
 	once                sync.Once
+	cycleCtx            context.Context
+	cycleCancel         context.CancelFunc
 }
 
 func NewMapTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) taskmaster.TaskMaster {
-	var (
-		connpool              = pool.GetConnPool()
-		taskMasterPool        = masterpool.GetTaskMasterPool()
-		taskMasterPoolCleaner = func(jobInstanceId int64) {
-			taskMasterPool.Get(jobInstanceId).Stop()
-			taskMasterPool.Remove(jobInstanceId)
-		}
-	)
 	mapTaskMaster := &MapTaskMaster{
-		actorCtx:              actorCtx,
-		taskMasterPoolCleaner: taskMasterPoolCleaner,
-		tasks:                 taskMasterPool.Tasks(),
-		connpool:              connpool,
-		pageSize:              config.GetWorkerConfig().MapMasterPageSize(),
-		queueSize:             int64(config.GetWorkerConfig().MapMasterQueueSize()),
-		dispatcherSize:        int64(config.GetWorkerConfig().MapMasterDispatcherSize()),
-		taskProgressMap:       new(sync.Map),
-		workerProgressMap:     new(sync.Map),
-		taskResultMap:         make(map[int64]string),
-		taskStatusMap:         make(map[int64]taskstatus.TaskStatus),
-		taskCounter:           atomic.NewInt64(0),
-		localTaskRouterPath:   actorCtx.ActorSystem().Address(),
+		actorCtx:            actorCtx,
+		pageSize:            config.GetWorkerConfig().MapMasterPageSize(),
+		queueSize:           int64(config.GetWorkerConfig().MapMasterQueueSize()),
+		dispatcherSize:      int64(config.GetWorkerConfig().MapMasterDispatcherSize()),
+		cycleCtx:            context.Background(),
+		cycleCancel:         func() {},
+		taskCounter:         atomic.NewInt64(0),
+		localTaskRouterPath: actorCtx.ActorSystem().Address(),
 		// taskStatusReqQueue:    batch.NewReqQueue(100000),
 		// taskBlockingQueue:     batch.NewReqQueue(100000),
 	}
@@ -140,23 +123,26 @@ func NewMapTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Co
 func (m *MapTaskMaster) init() {
 	m.once.Do(func() {
 		m.TaskMaster.Init()
+		ctx, cancel := context.WithCancel(context.Background())
+		m.cycleCtx = ctx
+		m.cycleCancel = cancel
 		jobIdAndInstanceId := strconv.FormatInt(m.GetJobInstanceInfo().GetJobId(), 10) + "_" + strconv.FormatInt(m.GetJobInstanceInfo().GetJobInstanceId(), 10)
-		logger.Infof("jobInstanceId=%d, map master config, pageSize:%d, queueSize:%d, dispatcherSize:%d, workerSize:%d",
+		logger.Infof("jobInstanceId=%s, map master config, pageSize:%d, queueSize:%d, dispatcherSize:%d, workerSize:%d",
 			jobIdAndInstanceId, m.pageSize, m.queueSize, m.dispatcherSize, len(m.GetJobInstanceInfo().GetAllWorkers()))
 
 		// pull
-		go m.pullTask(jobIdAndInstanceId)
+		go m.pullTask(ctx, jobIdAndInstanceId)
 
 		// status check
-		go m.checkInstanceStatus()
+		go m.checkInstanceStatus(ctx)
 
 		// job instance progress report
 		if !utils.IsSecondTypeJob(common.TimeType(m.GetJobInstanceInfo().GetTimeType())) {
-			go m.reportJobInstanceProgress()
+			go m.reportJobInstanceProgress(ctx)
 		}
 
 		// worker alive check thread
-		go m.checkWorkerAlive()
+		go m.checkWorkerAlive(ctx)
 
 		// PULL_MODEL specially
 		//		if m.xAttrs != nil && m.xAttrs.GetTaskDispatchMode() == string(common.TaskDispatchModePull) {
@@ -165,20 +151,37 @@ func (m *MapTaskMaster) init() {
 	})
 }
 
-func (m *MapTaskMaster) pullTask(jobIdAndInstanceId string) {
-	for !m.GetInstanceStatus().IsFinished() {
+func (m *MapTaskMaster) pullTask(ctx context.Context, jobIdAndInstanceId string) {
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Infof("pullTask exit, jobIdAndInstanceId=%s", jobIdAndInstanceId)
+			return
+		default:
+		}
+		if m.GetInstanceStatus().IsFinished() {
+			return
+		}
 		jobInstanceId := m.GetJobInstanceInfo().GetJobInstanceId()
 		startTime := time.Now()
 		taskInfos, err := m.taskPersistence.Pull(jobInstanceId, m.pageSize)
 		if err != nil && errors.Is(err, persistence.ErrTimeout) {
 			logger.Errorf("pull task timeout, uniqueId: %s", jobIdAndInstanceId)
-			time.Sleep(10 * time.Second)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Second):
+			}
 			continue
 		}
 		logger.Debugf("jobInstanceId=%d, pull cost=%dms", jobInstanceId, time.Since(startTime).Milliseconds())
 		if len(taskInfos) == 0 {
 			logger.Debugf("pull task empty of jobInstanceId=%d, sleep 10s ...", jobInstanceId)
-			time.Sleep(10 * time.Second)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Second):
+			}
 		} else {
 			for _, taskInfo := range taskInfos {
 				taskName := taskInfo.TaskName()
@@ -200,10 +203,18 @@ func (m *MapTaskMaster) pullTask(jobIdAndInstanceId string) {
 	}
 }
 
-func (m *MapTaskMaster) checkInstanceStatus() {
+func (m *MapTaskMaster) checkInstanceStatus(ctx context.Context) {
 	checkInterval := config.GetWorkerConfig().MapMasterStatusCheckInterval()
-	for !m.GetInstanceStatus().IsFinished() {
-		time.Sleep(checkInterval)
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Infof("checkInstanceStatus exit, jobInstanceId=%d", m.GetJobInstanceInfo().GetJobInstanceId())
+			return
+		case <-time.After(checkInterval):
+		}
+		if m.GetInstanceStatus().IsFinished() {
+			return
+		}
 		newStatus := m.taskPersistence.CheckInstanceStatus(m.GetJobInstanceInfo().GetJobInstanceId())
 		if newStatus.IsFinished() && m.taskDispatchReqHandler.IsActive() {
 			var (
@@ -220,7 +231,11 @@ func (m *MapTaskMaster) checkInstanceStatus() {
 			})
 
 			// avoid wrong early finish instance in condition root task was success but sub tasks are still creating.
-			time.Sleep(checkInterval)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(checkInterval):
+			}
 			continue
 		}
 		result := m.GetRootTaskResult()
@@ -258,8 +273,17 @@ func (m *MapTaskMaster) checkInstanceStatus() {
 	}
 }
 
-func (m *MapTaskMaster) reportJobInstanceProgress() {
-	for !m.GetInstanceStatus().IsFinished() {
+func (m *MapTaskMaster) reportJobInstanceProgress(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Infof("reportJobInstanceProgress exit, jobInstanceId=%d", m.GetJobInstanceInfo().GetJobInstanceId())
+			return
+		default:
+		}
+		if m.GetInstanceStatus().IsFinished() {
+			return
+		}
 		progress, err := m.GetJobInstanceProgress()
 		if err != nil {
 			logger.Errorf("report status error, uniqueId=%d, err=%s", m.GetJobInstanceInfo().GetJobInstanceId(), err.Error())
@@ -278,12 +302,25 @@ func (m *MapTaskMaster) reportJobInstanceProgress() {
 			Msg: req,
 		}
 
-		time.Sleep(5 * time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
 	}
 }
 
-func (m *MapTaskMaster) checkWorkerAlive() {
-	for !m.GetInstanceStatus().IsFinished() {
+func (m *MapTaskMaster) checkWorkerAlive(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Infof("checkWorkerAlive exit, jobInstanceId=%d", m.GetJobInstanceInfo().GetJobInstanceId())
+			return
+		default:
+		}
+		if m.GetInstanceStatus().IsFinished() {
+			return
+		}
 		for _, worker := range m.GetJobInstanceInfo().GetAllWorkers() {
 			m.aliveCheckWorkerSet.Add(worker)
 		}
@@ -304,7 +341,11 @@ func (m *MapTaskMaster) checkWorkerAlive() {
 						break
 					} else {
 						logger.Warnf("socket to %s is not reachable, times=%d", workerAddr, times)
-						time.Sleep(5 * time.Second)
+						select {
+						case <-ctx.Done():
+							return
+						case <-time.After(5 * time.Second):
+						}
 						times++
 					}
 				}
@@ -342,7 +383,11 @@ func (m *MapTaskMaster) checkWorkerAlive() {
 			}
 
 			// Worker detection is performed every 10 seconds
-			time.Sleep(10 * time.Second)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Second):
+			}
 		}
 	}
 }
@@ -459,8 +504,8 @@ func (m *MapTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.ContainerR
 		}
 
 		// update taskResultMap and taskStatusMap
-		m.taskResultMap[request.GetTaskId()] = request.GetResult()
-		m.taskStatusMap[request.GetTaskId()] = taskStatus
+		m.taskResultMap.Store(request.GetTaskId(), request.GetResult())
+		m.taskStatusMap.Store(request.GetTaskId(), taskStatus)
 	}
 
 	startTime := time.Now()
@@ -680,7 +725,7 @@ func (m *MapTaskMaster) batchHandleRunningProgress(masterStartContainerRequests 
 			if _, ok := worker2ReqsWithNormal[workerIdAddr]; !ok {
 				worker2ReqsWithNormal[workerIdAddr] = []*schedulerx.MasterStartContainerRequest{request}
 			} else {
-				worker2ReqsWithNormal[workerIdAddr] = append(worker2ReqsWithFailover[workerIdAddr], request)
+				worker2ReqsWithNormal[workerIdAddr] = append(worker2ReqsWithNormal[workerIdAddr], request)
 			}
 		}
 		if val, ok := m.taskProgressMap.Load(request.GetTaskName()); ok {
@@ -887,8 +932,19 @@ func (m *MapTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult
 	jobCtx.SetJobParameters(m.GetJobInstanceInfo().GetParameters())
 	jobCtx.SetInstanceParameters(m.GetJobInstanceInfo().GetInstanceParameters())
 	jobCtx.SetUser(m.GetJobInstanceInfo().GetUser())
-	jobCtx.SetTaskResults(m.taskResultMap)
-	jobCtx.SetTaskStatuses(m.taskStatusMap)
+	// convert sync.Map to plain map for jobCtx
+	taskResults := make(map[int64]string)
+	m.taskResultMap.Range(func(k, v any) bool {
+		taskResults[k.(int64)] = v.(string)
+		return true
+	})
+	taskStatuses := make(map[int64]taskstatus.TaskStatus)
+	m.taskStatusMap.Range(func(k, v any) bool {
+		taskStatuses[k.(int64)] = v.(taskstatus.TaskStatus)
+		return true
+	})
+	jobCtx.SetTaskResults(taskResults)
+	jobCtx.SetTaskStatuses(taskStatuses)
 
 	jobName := gjson.Get(jobCtx.Content(), "jobName").String()
 	// Compatible with the existing Java language configuration mechanism
@@ -1019,6 +1075,9 @@ func (m *MapTaskMaster) SyncPullTasks(pageSize int32, workerIdAddr string) []*sc
 }
 
 func (m *MapTaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
+	// Cancel the current cycle's goroutines and wait for them to exit
+	m.cycleCancel()
+
 	m.TaskMaster.Clear(taskMaster)
 	if m.taskStatusReqQueue != nil {
 		m.taskStatusReqQueue.Clear()
@@ -1032,24 +1091,21 @@ func (m *MapTaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
 	if m.taskStatusReqBatchHandler != nil {
 		m.taskStatusReqBatchHandler.Clear()
 	}
-	if m.taskProgressMap != nil {
-		m.taskProgressMap = nil
-	}
-	if m.workerProgressMap != nil {
-		m.workerProgressMap = nil
-	}
-	if m.taskResultMap != nil {
-		m.taskResultMap = nil
-	}
-	if m.taskStatusMap != nil {
-		m.taskStatusMap = nil
-	}
+	m.taskResultMap = sync.Map{}
+	m.taskStatusMap = sync.Map{}
+	m.taskProgressMap = sync.Map{}
+	m.workerProgressMap = sync.Map{}
 	m.clearTasks(m.GetJobInstanceInfo().GetJobInstanceId())
 	m.taskCounter = atomic.NewInt64(0)
+	// Reset sync.Once so the next cycle can re-init goroutines
+	m.once = sync.Once{}
+	// Reset ctx for the next cycle (a new ctx will be created in init())
+	m.cycleCtx = context.Background()
+	m.cycleCancel = func() {}
 }
 
 func (m *MapTaskMaster) GetTaskProgressMap() *sync.Map {
-	return m.taskProgressMap
+	return &m.taskProgressMap
 }
 
 func (m *MapTaskMaster) handleWorkerShutdown(workerIdAddr string) {

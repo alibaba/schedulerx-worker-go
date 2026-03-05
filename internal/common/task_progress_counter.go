@@ -29,12 +29,12 @@ type TaskProgressCounter struct {
 
 func NewTaskProgressCounter(name string) (c *TaskProgressCounter) {
 	return &TaskProgressCounter{
+		Name:    name,
 		Total:   atomic.NewInt64(0),
 		Pulled:  atomic.NewInt64(0),
 		Running: atomic.NewInt64(0),
 		Success: atomic.NewInt64(0),
 		Failed:  atomic.NewInt64(0),
-		Name:    name,
 	}
 }
 

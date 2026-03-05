@@ -47,14 +47,12 @@ const batchSize = 256
 // ParallelTaskMaster using persistence.ServerTaskPersistence
 type ParallelTaskMaster struct {
 	*MapTaskMaster
-	actorCtx actor.Context
 }
 
 func NewParallelTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) *ParallelTaskMaster {
 	jobInstanceId := jobInstanceInfo.GetJobInstanceId()
 
 	parallelTaskMaster := &ParallelTaskMaster{
-		actorCtx:      actorCtx,
 		MapTaskMaster: NewMapTaskMaster(jobInstanceInfo, actorCtx).(*MapTaskMaster),
 	}
 	parallelTaskMaster.taskPersistence = persistence.NewServerTaskPersistence(jobInstanceInfo.GetGroupId())

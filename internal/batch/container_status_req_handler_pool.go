@@ -36,12 +36,12 @@ func GetContainerStatusReqHandlerPool() *ContainerStatusReqHandlerPool {
 
 // ContainerStatusReqHandlerPool a reqs handler per jobInstance
 type ContainerStatusReqHandlerPool struct {
-	handlers *sync.Map // Map<Long, ContainerStatusReqHandler<ContainerReportTaskStatusRequest>>
+	handlers sync.Map // Map<Long, ContainerStatusReqHandler<ContainerReportTaskStatusRequest>>
 }
 
 func NewContainerStatusReqHandlerPool() *ContainerStatusReqHandlerPool {
 	return &ContainerStatusReqHandlerPool{
-		handlers: new(sync.Map),
+		handlers: sync.Map{},
 	}
 }
 

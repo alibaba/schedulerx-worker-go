@@ -28,10 +28,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
-	"github.com/alibaba/schedulerx-worker-go/internal/masterpool"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
-	"github.com/alibaba/schedulerx-worker-go/internal/remoting/pool"
-	"github.com/alibaba/schedulerx-worker-go/internal/tasks"
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 	"github.com/alibaba/schedulerx-worker-go/processor"
@@ -42,31 +39,12 @@ var _ taskmaster.TaskMaster = (*StandaloneTaskMaster)(nil)
 
 type StandaloneTaskMaster struct {
 	*TaskMaster
-	currentSelection      string // workerName
-	actorCtx              actor.Context
-	tasks                 *tasks.TaskMap
-	connpool              pool.ConnPool
-	taskMasterPoolCleaner func(int64)
+	currentSelection string // workerName
 }
 
 func NewStandaloneTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) taskmaster.TaskMaster {
-	var (
-		connpool              = pool.GetConnPool()
-		taskMasterPool        = masterpool.GetTaskMasterPool()
-		taskMasterPoolCleaner = func(jobInstanceId int64) {
-			if taskMaster := taskMasterPool.Get(jobInstanceId); taskMaster != nil {
-				taskMaster.Stop()
-				taskMasterPool.Remove(jobInstanceId)
-			}
-		}
-	)
-
 	standaloneTaskMaster := &StandaloneTaskMaster{
-		actorCtx:              actorCtx,
-		taskMasterPoolCleaner: taskMasterPoolCleaner,
-		tasks:                 taskMasterPool.Tasks(),
-		connpool:              connpool,
-		currentSelection:      actorCtx.Self().Address,
+		currentSelection: actorCtx.Self().Address,
 	}
 
 	statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, standaloneTaskMaster, jobInstanceInfo)
