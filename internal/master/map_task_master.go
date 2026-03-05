@@ -524,7 +524,6 @@ func (m *MapTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.ContainerR
 	}
 	for i := 0; i < 3; i++ {
 		// try 3 times
-		// FIXME if need 3 times?
 		if err := m.taskPersistence.UpdateTaskStatues(allTaskStatus); err != nil {
 			logger.Errorf("jobInstanceId=%d, persistent batch updateTaskStatus error, err=%s", m.jobInstanceInfo.GetJobInstanceId(), err.Error())
 			continue
