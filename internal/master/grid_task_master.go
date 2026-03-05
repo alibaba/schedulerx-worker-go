@@ -19,10 +19,10 @@ package master
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/alibaba/schedulerx-worker-go/config"
 
 	"github.com/asynkron/protoactor-go/actor"
 
+	"github.com/alibaba/schedulerx-worker-go/config"
 	"github.com/alibaba/schedulerx-worker-go/internal/batch"
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/constants"

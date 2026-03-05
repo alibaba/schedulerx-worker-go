@@ -79,5 +79,5 @@ func (p *ContainerStatusReqHandlerPool) SubmitReq(jobInstanceId int64, req *sche
 }
 
 func (p *ContainerStatusReqHandlerPool) GetHandlers() *sync.Map {
-	return p.handlers
+	return &p.handlers
 }

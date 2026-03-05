@@ -82,7 +82,7 @@ func (pq *PriorityQueue) Peek() ComparatorItem {
 	defer pq.mu.RUnlock()
 
 	if len(pq.items) > 0 {
-		return pq.items[0].(ComparatorItem)
+		return pq.items[0]
 	}
 	return nil
 }
