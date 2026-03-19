@@ -21,6 +21,7 @@ import (
 
 	actorcomm "github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
+	"github.com/alibaba/schedulerx-worker-go/internal/remoting/pool"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
@@ -61,12 +62,14 @@ func (a *atLeastOnceDeliveryRoutingActor) Receive(actorCtx actor.Context) {
 
 func (a *atLeastOnceDeliveryRoutingActor) handleReportInstanceStatusEvent(req *schedulerx.WorkerReportJobInstanceStatusRequest) {
 	actorcomm.SxMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
+		Ctx: pool.ConnPoolCtxForGroup(req.GetGroupId()),
 		Msg: req,
 	}
 }
 
 func (a *atLeastOnceDeliveryRoutingActor) handleBatchReportTaskStatues(req *schedulerx.WorkerBatchReportTaskStatuesRequest) {
 	actorcomm.SxMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
+		Ctx: pool.ConnPoolCtxForGroup(req.GetGroupId()),
 		Msg: req,
 	}
 }

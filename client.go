@@ -141,16 +141,35 @@ func newClient(cfg *Config, opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("cannot get schedulerX discovery active server")
 	}
 
-	// Init connection pool
-	dialer := func() (net.Conn, error) {
-		activeServer := serverDiscover.ActiveServer()
-		logger.Infof("SchedulerX discovery active server addr=%s", activeServer)
-		return net.DialTimeout("tcp", activeServer, time.Millisecond*500)
+	// Init connection pool manager (per-groupId isolated connections)
+	poolFactory := func(fctx context.Context, groupId string) pool.ConnPool {
+		sd := discovery.GetDiscovery(groupId)
+		changedCh := sd.ResultChangedCh()
+		// Drain the signal from the initial refreshActiveServer call (addr "" → actual),
+		// since the pool will dial the current active server directly on first Get().
+		// Only future genuine addr changes should trigger reconnection.
+		select {
+		case <-changedCh:
+		default:
+		}
+		dialer := func() (net.Conn, error) {
+			activeServer := sd.ActiveServer()
+			logger.Infof("SchedulerX discovery active server addr=%s, groupId=%s", activeServer, groupId)
+			return net.DialTimeout("tcp", activeServer, time.Millisecond*500)
+		}
+		return pool.NewSingleConnPool(fctx, dialer,
+			pool.WithPostDialer(remoting.Handshake),
+			pool.WithAddrChangedSignalCh(changedCh))
 	}
-	pool.InitConnPool(ctx, dialer,
-		pool.WithPostDialer(remoting.Handshake),
-		pool.WithAddrChangedSignalCh(serverDiscover.ResultChangedCh()))
-	if conn, err := pool.GetConnPool().Get(ctx); err != nil {
+	pool.InitConnPoolManager(ctx, poolFactory,
+		pool.WithDefaultGroup(cfg.GroupId),
+		pool.WithOnNewPool(func(groupId string, p pool.ConnPool) {
+			remoting.OnMsgReceived(ctx, p)
+		}))
+
+	// Eagerly create the parent group's pool and verify connection
+	parentPool := pool.GetConnPoolManager().GetOrCreate(cfg.GroupId)
+	if conn, err := parentPool.Get(ctx); err != nil {
 		return nil, fmt.Errorf("cannot connect schedulerx server, maybe network was broken, err=%s", err.Error())
 	} else {
 		logger.Infof("SchedulerX server connected, remoteAddr=%s, localAddr=%s", conn.RemoteAddr(), conn.LocalAddr().String())
@@ -168,10 +187,9 @@ func newClient(cfg *Config, opts ...Option) (*Client, error) {
 	stopChan := make(chan os.Signal, 1)
 	signal.Notify(stopChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Keep heartbeat, and receive message
+	// Keep heartbeat (OnMsgReceived is started per-pool via the onNewPool callback above)
 	// KeepHeartbeat must after init actors, so that can get actorSystemPort from actorSystem
-	go remoting.KeepHeartbeat(ctx, actorSystem, cfg.AppKey, stopChan)
-	go remoting.OnMsgReceived(ctx)
+	go remoting.KeepHeartbeat(ctx, actorSystem, stopChan)
 
 	return &Client{
 		cfg:      cfg,
