@@ -118,8 +118,31 @@ func (s *ServiceDiscover) queryActiveServer(groupId, appKey string) (string, err
 		return "", fmt.Errorf("result is not success requestId:%s message:%s, url=%s", respData.RequestId, respData.Message, urlStr)
 	}
 
+	// Data 可能是 string（旧版 API）或 map[string]interface{}（JSON 对象），需安全解析
+	getLeaderAddr := func(data interface{}) (string, error) {
+		switch v := data.(type) {
+		case string:
+			return v, nil
+		case map[string]interface{}:
+			for _, key := range []string{"currentLeaderAddr", "CurrentLeaderAddr", "leaderAddr", "LeaderAddr", "addr", "address"} {
+				if val, ok := v[key]; ok {
+					if s, ok := val.(string); ok {
+						return s, nil
+					}
+				}
+			}
+			return "", fmt.Errorf("cannot find leader address in response data")
+		default:
+			return "", fmt.Errorf("unexpected Data type: %T", data)
+		}
+	}
+
 	if respData.Code != GroupHasChild {
-		return respData.Data.(string), nil
+		addr, err := getLeaderAddr(respData.Data)
+		if err != nil {
+			return "", err
+		}
+		return addr, nil
 	}
 
 	// This application group has enabled automatic scaling and has split child nodes, requiring the parsing of all groupIds, and register serverDiscovery.
@@ -127,9 +150,23 @@ func (s *ServiceDiscover) queryActiveServer(groupId, appKey string) (string, err
 		CurrentLeaderAddr string
 		GroupIdMap        map[string]string // key=groupId, val=appKey
 	}
-	err = json.Unmarshal([]byte(respData.Data.(string)), &groupResult)
-	if err != nil {
-		return "", fmt.Errorf("unmarshal group result[%s] fail %w", respData.Data, err)
+	switch v := respData.Data.(type) {
+	case string:
+		err = json.Unmarshal([]byte(v), &groupResult)
+		if err != nil {
+			return "", fmt.Errorf("unmarshal group result[%s] fail %w", respData.Data, err)
+		}
+	case map[string]interface{}:
+		b, marshalErr := json.Marshal(v)
+		if marshalErr != nil {
+			return "", fmt.Errorf("marshal group result fail %w", marshalErr)
+		}
+		err = json.Unmarshal(b, &groupResult)
+		if err != nil {
+			return "", fmt.Errorf("unmarshal group result fail %w", err)
+		}
+	default:
+		return "", fmt.Errorf("unexpected Data type: %T", respData.Data)
 	}
 
 	for childGroupId, childAppKey := range groupResult.GroupIdMap {
