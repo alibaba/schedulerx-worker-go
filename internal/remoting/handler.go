@@ -34,8 +34,10 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
-func OnMsgReceived(ctx context.Context) {
-	connpool := pool.GetConnPool()
+func OnMsgReceived(ctx context.Context, connpool pool.ConnPool) {
+	// Embed the originating pool in the context so that downstream actors/processors
+	// send responses back through the same connection (i.e. to the correct server).
+	poolCtx := pool.WithConnPool(ctx, connpool)
 
 	var dataLen uint32
 	hdrBuf := make([]byte, constants.TransportHeaderSize)
@@ -100,13 +102,13 @@ func OnMsgReceived(ctx context.Context) {
 				continue
 			}
 		case *schedulerx.ServerSubmitJobInstanceRequest:
-			actorcomm.SxMsgReceiver() <- actorcomm.WrapSchedulerxMsg(ctx, msg, senderPath)
+			actorcomm.SxMsgReceiver() <- actorcomm.WrapSchedulerxMsg(poolCtx, msg, senderPath)
 		case *schedulerx.ServerKillJobInstanceRequest:
-			actorcomm.SxMsgReceiver() <- actorcomm.WrapSchedulerxMsg(ctx, msg, senderPath)
+			actorcomm.SxMsgReceiver() <- actorcomm.WrapSchedulerxMsg(poolCtx, msg, senderPath)
 		case *schedulerx.ServerKillTaskRequest:
-			actorcomm.SxMsgReceiver() <- actorcomm.WrapSchedulerxMsg(ctx, msg, senderPath)
+			actorcomm.SxMsgReceiver() <- actorcomm.WrapSchedulerxMsg(poolCtx, msg, senderPath)
 		case *schedulerx.ServerRetryTasksRequest:
-			actorcomm.SxMsgReceiver() <- actorcomm.WrapSchedulerxMsg(ctx, msg, senderPath)
+			actorcomm.SxMsgReceiver() <- actorcomm.WrapSchedulerxMsg(poolCtx, msg, senderPath)
 		case *schedulerx.WorkerReportJobInstanceStatusResponse:
 			logger.Debugf("Receive WorkerReportJobInstanceStatusResponse from server, resp=%+v", msg)
 			continue

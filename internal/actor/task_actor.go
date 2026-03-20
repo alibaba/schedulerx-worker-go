@@ -17,7 +17,6 @@
 package actor
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -91,7 +90,7 @@ func (a *taskActor) Receive(ctx actor.Context) {
 			ctx.Send(actorcomm.SchedulerxServerPid(msg.Ctx), msg)
 		case *schedulerx.WorkerBatchUpdateTaskStatusRequest:
 			// forward to server
-			serverPid := actorcomm.SchedulerxServerPid(context.Background())
+			serverPid := actorcomm.SchedulerxServerPid(msg.Ctx)
 			result, err := ctx.RequestFuture(serverPid, msg, 5*time.Second).Result()
 			if err != nil {
 				logger.Errorf("Send WorkerBatchUpdateTaskStatusRequest timeout, jobInstanceId=%d, serverAddr=%s", innerMsg.JobInstanceId, serverPid.Address)
@@ -100,7 +99,7 @@ func (a *taskActor) Receive(ctx actor.Context) {
 			}
 		case *schedulerx.WorkerQueryJobInstanceStatusRequest:
 			// forward to server
-			serverPid := actorcomm.SchedulerxServerPid(context.Background())
+			serverPid := actorcomm.SchedulerxServerPid(msg.Ctx)
 			result, err := ctx.RequestFuture(serverPid, msg, 30*time.Second).Result()
 			if err != nil {
 				logger.Errorf("Send WorkerQueryJobInstanceStatusRequest timeout, jobInstanceId=%d, serverAddr=%s", innerMsg.JobInstanceId, serverPid.Address)
@@ -109,7 +108,7 @@ func (a *taskActor) Receive(ctx actor.Context) {
 			}
 		case *schedulerx.WorkerClearTasksRequest:
 			// forward to server
-			serverPid := actorcomm.SchedulerxServerPid(context.Background())
+			serverPid := actorcomm.SchedulerxServerPid(msg.Ctx)
 			result, err := ctx.RequestFuture(serverPid, msg, 5*time.Second).Result()
 			if err != nil {
 				logger.Errorf("Send WorkerClearTasksRequest timeout, jobInstanceId=%d, serverAddr=%s", innerMsg.JobInstanceId, serverPid.Address)
@@ -118,7 +117,7 @@ func (a *taskActor) Receive(ctx actor.Context) {
 			}
 		case *schedulerx.WorkerBatchCreateTasksRequest:
 			// forward to server
-			serverPid := actorcomm.SchedulerxServerPid(context.Background())
+			serverPid := actorcomm.SchedulerxServerPid(msg.Ctx)
 			result, err := ctx.RequestFuture(serverPid, msg, 90*time.Second).Result()
 			if err != nil {
 				logger.Errorf("Send WorkerBatchCreateTasksRequest timeout, jobInstanceId=%d, serverAddr=%s", innerMsg.JobInstanceId, serverPid.Address)
@@ -127,7 +126,7 @@ func (a *taskActor) Receive(ctx actor.Context) {
 			}
 		case *schedulerx.WorkerPullTasksRequest:
 			// forward to server
-			serverPid := actorcomm.SchedulerxServerPid(context.Background())
+			serverPid := actorcomm.SchedulerxServerPid(msg.Ctx)
 			result, err := ctx.RequestFuture(serverPid, msg, 30*time.Second).Result()
 			if err != nil {
 				logger.Errorf("Send WorkerPullTasksRequest timeout, jobInstanceId=%d, serverAddr=%s", innerMsg.JobInstanceId, serverPid.Address)
@@ -136,10 +135,10 @@ func (a *taskActor) Receive(ctx actor.Context) {
 			}
 		case *schedulerx.WorkerBatchReportTaskStatuesRequest:
 			// forward to server
-			serverPid := actorcomm.SchedulerxServerPid(context.Background())
+			serverPid := actorcomm.SchedulerxServerPid(msg.Ctx)
 			ctx.Send(serverPid, msg)
 		case *schedulerx.WorkerReportTaskListStatusRequest:
-			serverPid := actorcomm.SchedulerxServerPid(context.Background())
+			serverPid := actorcomm.SchedulerxServerPid(msg.Ctx)
 			result, err := ctx.RequestFuture(serverPid, innerMsg, 30*time.Second).Result()
 			if err != nil {
 				logger.Errorf("Send WorkerReportTaskListStatusRequest timeout, jobInstanceId=%d, serverAddr=%s", innerMsg.JobInstanceId, serverPid.Address)

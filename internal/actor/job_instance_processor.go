@@ -17,6 +17,7 @@
 package actor
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/asynkron/protoactor-go/actor"
@@ -44,6 +45,13 @@ func newJobInstanceProcessor(connpool pool.ConnPool) actor.Process {
 	}
 }
 
+func (p *jobInstanceProcessor) getConnPool(ctx context.Context) pool.ConnPool {
+	if cp := pool.ConnPoolFromContext(ctx); cp != nil {
+		return cp
+	}
+	return p.connpool
+}
+
 func (p *jobInstanceProcessor) SendUserMessage(pid *actor.PID, message interface{}) {
 	if actorcomm.IsSchedulerxServer(pid) {
 		var (
@@ -55,7 +63,7 @@ func (p *jobInstanceProcessor) SendUserMessage(pid *actor.PID, message interface
 			logger.Errorf("Get unknown message, msg=%+v", wrappedMsg)
 			return
 		}
-		conn, err := p.connpool.Get(wrappedMsg.Ctx)
+		conn, err := p.getConnPool(wrappedMsg.Ctx).Get(wrappedMsg.Ctx)
 		if err != nil {
 			logger.Errorf("Get conn from pool failed, err=%s", err.Error())
 			return

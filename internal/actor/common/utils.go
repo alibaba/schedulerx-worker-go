@@ -60,7 +60,14 @@ func IsSchedulerxServer(pid *actor.PID) bool {
 }
 
 func SchedulerxServerPid(ctx context.Context) *actor.PID {
-	conn, err := pool.GetConnPool().Get(ctx)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cp := pool.ConnPoolFromContext(ctx)
+	if cp == nil {
+		cp = pool.GetConnPool()
+	}
+	conn, err := cp.Get(ctx)
 	if err != nil {
 		return &actor.PID{}
 	}

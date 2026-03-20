@@ -51,7 +51,7 @@ var (
 	waitHeartbeatRespTimeout = 5 * time.Second
 )
 
-func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem, appKey string, stopChan chan os.Signal) {
+func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem, stopChan chan os.Signal) {
 	var (
 		taskMasterPool = masterpool.GetTaskMasterPool()
 		groupManager   = discovery.GetGroupManager()
@@ -64,17 +64,15 @@ func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem, appKey s
 			return
 		}
 		for groupId, appGroupId := range groupManager.GroupId2AppGroupIdMap() {
+			appKey := groupManager.GetAppKeyByGroupId(groupId)
 			jobInstanceIds := taskMasterPool.GetInstanceIds(appGroupId)
 			heartbeatReq := genHeartBeatRequest(groupId, appGroupId, jobInstanceIds, actorSystemPort, online, appKey)
-			if err := sendHeartbeat(ctx, heartbeatReq); err != nil {
-				if errors.Is(err, syscall.EPIPE) || errors.Is(err, os.ErrDeadlineExceeded) {
-					pool.GetConnPool().ReconnectTrigger() <- struct{}{}
-				}
-				logger.Warnf("Write heartbeat to server failed, had already re-connect with server, reason=%s", err.Error())
+			if err := sendHeartbeat(ctx, groupId, heartbeatReq); err != nil {
+				logger.Warnf("Write heartbeat to server failed, groupId=%s, reason=%s", groupId, err.Error())
 				continue
 			}
 			utils.GetHealthTimeHolder().ResetServerHeartbeatTime()
-			logger.Debugf("Write heartbeat to remote succeed.")
+			logger.Debugf("Write heartbeat to remote succeed, groupId=%s", groupId)
 		}
 	}
 	heartbeat(true)
@@ -93,8 +91,9 @@ func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem, appKey s
 	}
 }
 
-func sendHeartbeat(ctx context.Context, req *schedulerx.WorkerHeartBeatRequest) error {
-	conn, err := pool.GetConnPool().Get(ctx)
+func sendHeartbeat(ctx context.Context, groupId string, req *schedulerx.WorkerHeartBeatRequest) error {
+	connPool := pool.GetConnPoolManager().GetOrCreate(groupId)
+	conn, err := connPool.Get(ctx)
 	if err != nil {
 		return err
 	}
@@ -118,7 +117,14 @@ func sendHeartbeat(ctx context.Context, req *schedulerx.WorkerHeartBeatRequest) 
 	if err != nil {
 		return err
 	}
-	return trans.WriteAkkaMsg(akkaMsg, conn)
+
+	if writeErr := trans.WriteAkkaMsg(akkaMsg, conn); writeErr != nil {
+		if errors.Is(writeErr, syscall.EPIPE) || errors.Is(writeErr, os.ErrDeadlineExceeded) {
+			connPool.ReconnectTrigger() <- struct{}{}
+		}
+		return writeErr
+	}
+	return nil
 }
 
 func metricsJsonStr() string {
