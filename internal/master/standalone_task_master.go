@@ -47,11 +47,14 @@ func NewStandaloneTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx a
 		currentSelection: actorCtx.Self().Address,
 	}
 
-	statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, standaloneTaskMaster, jobInstanceInfo)
 	if utils.IsSecondTypeJob(common.TimeType(jobInstanceInfo.GetTimeType())) {
-		statusHandler = NewSecondJobUpdateInstanceStatusHandler(actorCtx, standaloneTaskMaster, jobInstanceInfo)
+		secondHandler := NewSecondJobUpdateInstanceStatusHandler(actorCtx, standaloneTaskMaster, jobInstanceInfo)
+		standaloneTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, secondHandler)
+		secondHandler.init()
+	} else {
+		statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, standaloneTaskMaster, jobInstanceInfo)
+		standaloneTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, statusHandler)
 	}
-	standaloneTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, statusHandler)
 
 	return standaloneTaskMaster
 }

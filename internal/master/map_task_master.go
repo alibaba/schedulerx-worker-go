@@ -95,11 +95,14 @@ func NewMapTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Co
 		// taskBlockingQueue:     batch.NewReqQueue(100000),
 	}
 
-	statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, mapTaskMaster, jobInstanceInfo)
 	if utils.IsSecondTypeJob(common.TimeType(jobInstanceInfo.GetTimeType())) {
-		statusHandler = NewSecondJobUpdateInstanceStatusHandler(actorCtx, mapTaskMaster, jobInstanceInfo)
+		secondHandler := NewSecondJobUpdateInstanceStatusHandler(actorCtx, mapTaskMaster, jobInstanceInfo)
+		mapTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, secondHandler)
+		secondHandler.init()
+	} else {
+		statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, mapTaskMaster, jobInstanceInfo)
+		mapTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, statusHandler)
 	}
-	mapTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, statusHandler)
 
 	// mapTaskMaster.taskStatusReqBatchHandler = batch.NewTMStatusReqHandler(jobInstanceInfo.GetJobInstanceId(), 1, 1, 3000, mapTaskMaster.taskStatusReqQueue)
 	// if jobInstanceInfo.GetXattrs() != "" {

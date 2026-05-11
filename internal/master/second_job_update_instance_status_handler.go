@@ -54,7 +54,7 @@ type SecondJobUpdateInstanceStatusHandler struct {
 	recentProgressHistory *utils.LimitedQueue
 }
 
-func NewSecondJobUpdateInstanceStatusHandler(actorCtx actor.Context, taskMaster taskmaster.TaskMaster, jobInstanceInfo *common.JobInstanceInfo) UpdateInstanceStatusHandler {
+func NewSecondJobUpdateInstanceStatusHandler(actorCtx actor.Context, taskMaster taskmaster.TaskMaster, jobInstanceInfo *common.JobInstanceInfo) *SecondJobUpdateInstanceStatusHandler {
 	h := &SecondJobUpdateInstanceStatusHandler{
 		baseUpdateInstanceStatusHandler: NewBaseUpdateInstanceStatusHandler(jobInstanceInfo, taskMaster),
 		actorCtx:                        actorCtx,
@@ -63,7 +63,6 @@ func NewSecondJobUpdateInstanceStatusHandler(actorCtx actor.Context, taskMaster 
 		secondProgressDetail:            common.NewSecondProgressDetail(),
 		recentProgressHistory:           utils.NewLimitedQueue(10),
 	}
-	h.init()
 	return h
 }
 
@@ -78,7 +77,7 @@ func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 	intervalTimes := 0
 	jobIdAndInstanceId := utils.GetUniqueIdWithoutTaskId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId())
 	for {
-		// taskMaster may not be fully initialized yet, check nil to avoid panic
+		// Purely defensive code, should never trigger in practice
 		if h.taskMaster == nil {
 			time.Sleep(100 * time.Millisecond)
 			continue

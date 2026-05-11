@@ -67,11 +67,14 @@ func NewBroadcastTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx ac
 		cycleCancel: func() {},
 	}
 
-	statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, broadcastTaskMaster, jobInstanceInfo)
 	if utils.IsSecondTypeJob(common.TimeType(jobInstanceInfo.GetTimeType())) {
-		statusHandler = NewSecondJobUpdateInstanceStatusHandler(actorCtx, broadcastTaskMaster, jobInstanceInfo)
+		secondHandler := NewSecondJobUpdateInstanceStatusHandler(actorCtx, broadcastTaskMaster, jobInstanceInfo)
+		broadcastTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, secondHandler)
+		secondHandler.init()
+	} else {
+		statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, broadcastTaskMaster, jobInstanceInfo)
+		broadcastTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, statusHandler)
 	}
-	broadcastTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, statusHandler)
 
 	return broadcastTaskMaster
 }
