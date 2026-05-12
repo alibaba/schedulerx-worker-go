@@ -181,7 +181,7 @@ func NewSingleConnPool(ctx context.Context, dialer func() (net.Conn, error), opt
 
 	pool := &singleConnPool{
 		dialer:            dialer,
-		reconnectSignalCh: make(chan struct{}, 3),
+		reconnectSignalCh: make(chan struct{}, 1),
 		options:           options,
 	}
 

@@ -48,11 +48,9 @@ func NewContainerStatusReqHandlerPool() *ContainerStatusReqHandlerPool {
 func (p *ContainerStatusReqHandlerPool) Start(jobInstanceId int64, reqHandler *ContainerStatusReqHandler) {
 	// only process init phase;
 	// make sure no other already create mapping during sync blocking time range.
-	handler, ok := p.handlers.LoadOrStore(jobInstanceId, reqHandler)
-	if !ok {
-		if statusReqHandler, ok := handler.(*ContainerStatusReqHandler); ok {
-			statusReqHandler.Start(statusReqHandler)
-		}
+	_, loaded := p.handlers.LoadOrStore(jobInstanceId, reqHandler)
+	if !loaded {
+		reqHandler.Start(reqHandler)
 	}
 }
 

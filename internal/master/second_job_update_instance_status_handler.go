@@ -24,6 +24,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
@@ -52,6 +53,8 @@ type SecondJobUpdateInstanceStatusHandler struct {
 	triggerCus            int32
 	enableCycleIntervalMs bool
 	recentProgressHistory *utils.LimitedQueue
+	stopCh                chan struct{}
+	stopOnce              sync.Once
 }
 
 func NewSecondJobUpdateInstanceStatusHandler(actorCtx actor.Context, taskMaster taskmaster.TaskMaster, jobInstanceInfo *common.JobInstanceInfo) *SecondJobUpdateInstanceStatusHandler {
@@ -62,6 +65,7 @@ func NewSecondJobUpdateInstanceStatusHandler(actorCtx actor.Context, taskMaster 
 		enableCycleIntervalMs:           config.GetWorkerConfig().IsSecondDelayIntervalMS(),
 		secondProgressDetail:            common.NewSecondProgressDetail(),
 		recentProgressHistory:           utils.NewLimitedQueue(10),
+		stopCh:                          make(chan struct{}),
 	}
 	return h
 }
@@ -77,15 +81,18 @@ func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 	intervalTimes := 0
 	jobIdAndInstanceId := utils.GetUniqueIdWithoutTaskId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId())
 	for {
-		// Purely defensive code, should never trigger in practice
-		if h.taskMaster == nil {
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
 		if h.taskMaster.IsKilled() {
-			break
+			logger.Infof("reportJobInstanceProgress exit due to taskMaster killed, jobIdAndInstanceId=%s", jobIdAndInstanceId)
+			return
 		}
-		time.Sleep(1 * time.Second)
+
+		select {
+		case <-h.stopCh:
+			logger.Infof("reportJobInstanceProgress exit via stopCh, jobIdAndInstanceId=%s", jobIdAndInstanceId)
+			return
+		case <-time.After(1 * time.Second):
+		}
+
 		intervalTimes++
 		if intervalTimes > 10 {
 			progress, err := h.getJobInstanceProgress()
@@ -114,6 +121,12 @@ func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 			logger.Errorf("report status error, err=%v, jobIdAndInstanceId=%s.", err, jobIdAndInstanceId)
 		}
 	}
+}
+
+func (h *SecondJobUpdateInstanceStatusHandler) stop() {
+	h.stopOnce.Do(func() {
+		close(h.stopCh)
+	})
 }
 
 // Kill self is required if any of the following conditions are met:
@@ -205,6 +218,7 @@ func (h *SecondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 		strings.Contains(result, "Worker master shutdown")) {
 		h.taskMaster.SetInstanceStatus(processor.InstanceStatusFailed)
 		h.taskMaster.Stop()
+		h.stop()
 		h.masterPool.Remove(h.jobInstanceInfo.GetJobInstanceId())
 
 		if result != "killed from server" {

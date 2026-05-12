@@ -95,6 +95,7 @@ func (s *ServiceDiscover) queryActiveServer(groupId, appKey string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("http.Get error %w", err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("http.Get statusCode %d", resp.StatusCode)
 	}
@@ -102,7 +103,6 @@ func (s *ServiceDiscover) queryActiveServer(groupId, appKey string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("read body error %w", err)
 	}
-	defer resp.Body.Close()
 	var respData struct {
 		Success   bool
 		RequestId string

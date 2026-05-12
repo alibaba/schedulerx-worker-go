@@ -60,10 +60,10 @@ type BroadcastTaskMaster struct {
 
 func NewBroadcastTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) taskmaster.TaskMaster {
 	broadcastTaskMaster := &BroadcastTaskMaster{
-		running:    false,
-		monitor:    false,
-		allWorkers: []string{},
-		cycleCtx:   context.Background(),
+		running:     false,
+		monitor:     false,
+		allWorkers:  []string{},
+		cycleCtx:    context.Background(),
 		cycleCancel: func() {},
 	}
 
@@ -370,6 +370,7 @@ func (m *BroadcastTaskMaster) checkWorkerAlive(ctx context.Context) {
 			return
 		}
 		if !m.isMonitor() {
+			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 
