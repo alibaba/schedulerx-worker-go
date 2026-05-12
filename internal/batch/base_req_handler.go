@@ -50,7 +50,6 @@ type BaseReqHandler struct {
 	batchProcessThreadName  string
 	batchRetrieveThreadName string
 	reqsQueue               *ReqQueue
-	batchRetrieveFunc       func()
 	stopBatchRetrieveCh     chan struct{}
 	defaultSleepMs          time.Duration
 	emptySleepMs            time.Duration
@@ -136,11 +135,11 @@ func (rcvr *BaseReqHandler) SetWorkThreadNum(workThreadNum int) {
 }
 
 func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
-	rcvr.stopBatchRetrieveCh = make(chan struct{}, 1)
+	rcvr.stopBatchRetrieveCh = make(chan struct{})
 	// Capture the stop channel locally so the goroutine always references
 	// its own channel even if Start() is called again (second-delay cycle).
 	stopCh := rcvr.stopBatchRetrieveCh
-	rcvr.batchRetrieveFunc = func() {
+	go func() {
 		for {
 			select {
 			case <-stopCh:
@@ -158,16 +157,15 @@ func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
 				}
 			}
 		}
-	}
-	go rcvr.batchRetrieveFunc()
+	}()
 
 	return nil
 }
 
 func (rcvr *BaseReqHandler) Stop() {
-	if rcvr.batchRetrieveFunc != nil {
-		rcvr.batchRetrieveFunc = nil
-		rcvr.stopBatchRetrieveCh <- struct{}{}
+	if rcvr.stopBatchRetrieveCh != nil {
+		close(rcvr.stopBatchRetrieveCh)
+		rcvr.stopBatchRetrieveCh = nil
 	}
 	if rcvr.reqsQueue != nil {
 		rcvr.reqsQueue.Clear()
