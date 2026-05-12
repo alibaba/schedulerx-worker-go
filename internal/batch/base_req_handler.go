@@ -137,10 +137,13 @@ func (rcvr *BaseReqHandler) SetWorkThreadNum(workThreadNum int) {
 
 func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
 	rcvr.stopBatchRetrieveCh = make(chan struct{}, 1)
+	// Capture the stop channel locally so the goroutine always references
+	// its own channel even if Start() is called again (second-delay cycle).
+	stopCh := rcvr.stopBatchRetrieveCh
 	rcvr.batchRetrieveFunc = func() {
 		for {
 			select {
-			case <-rcvr.stopBatchRetrieveCh:
+			case <-stopCh:
 				return
 			default:
 				reqs := rcvr.AsyncHandleReqs(h)

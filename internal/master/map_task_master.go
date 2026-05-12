@@ -1087,11 +1087,14 @@ func (m *MapTaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
 	if m.taskBlockingQueue != nil {
 		m.taskBlockingQueue.Clear()
 	}
+	// Stop batch handlers to terminate their goroutines, preventing goroutine
+	// leaks across second-delay cycles. Stop() sends the stop signal AND clears
+	// the queue, so a separate Clear() call is unnecessary.
 	if m.taskDispatchReqHandler != nil {
-		m.taskDispatchReqHandler.Clear()
+		m.taskDispatchReqHandler.Stop()
 	}
 	if m.taskStatusReqBatchHandler != nil {
-		m.taskStatusReqBatchHandler.Clear()
+		m.taskStatusReqBatchHandler.Stop()
 	}
 	m.taskResultMap = sync.Map{}
 	m.taskStatusMap = sync.Map{}
