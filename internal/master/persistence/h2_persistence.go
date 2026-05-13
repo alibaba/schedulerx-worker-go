@@ -74,6 +74,7 @@ func (rcvr *H2Persistence) BatchUpdateTaskStatus(jobInstanceId int64, status tas
 			time.Sleep(1000 * time.Millisecond)
 			continue
 		}
+		break
 	}
 	return affectCnt
 }
