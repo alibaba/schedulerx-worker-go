@@ -80,6 +80,8 @@ func (h *SecondJobUpdateInstanceStatusHandler) init() {
 func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 	intervalTimes := 0
 	jobIdAndInstanceId := utils.GetUniqueIdWithoutTaskId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId())
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 	for {
 		if h.taskMaster.IsKilled() {
 			logger.Infof("reportJobInstanceProgress exit due to taskMaster killed, jobIdAndInstanceId=%s", jobIdAndInstanceId)
@@ -90,7 +92,7 @@ func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 		case <-h.stopCh:
 			logger.Infof("reportJobInstanceProgress exit via stopCh, jobIdAndInstanceId=%s", jobIdAndInstanceId)
 			return
-		case <-time.After(1 * time.Second):
+		case <-ticker.C:
 		}
 
 		intervalTimes++
