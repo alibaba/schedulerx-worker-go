@@ -120,7 +120,12 @@ func sendHeartbeat(ctx context.Context, groupId string, req *schedulerx.WorkerHe
 
 	if writeErr := trans.WriteAkkaMsg(akkaMsg, conn); writeErr != nil {
 		if errors.Is(writeErr, syscall.EPIPE) || errors.Is(writeErr, os.ErrDeadlineExceeded) {
-			connPool.ReconnectTrigger() <- struct{}{}
+			// Non-blocking send: heartbeat must not stall on a saturated
+			// reconnect channel — losing duplicate signals is harmless.
+			select {
+			case connPool.ReconnectTrigger() <- struct{}{}:
+			default:
+			}
 		}
 		return writeErr
 	}
