@@ -19,6 +19,7 @@ package batch
 import (
 	"math"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/panjf2000/ants/v2"
@@ -50,7 +51,7 @@ type BaseReqHandler struct {
 	batchProcessThreadName  string
 	batchRetrieveThreadName string
 	reqsQueue               *ReqQueue
-	batchRetrieveFunc       func()
+	stopChLock              sync.Mutex
 	stopBatchRetrieveCh     chan struct{}
 	defaultSleepMs          time.Duration
 	emptySleepMs            time.Duration
@@ -136,11 +137,16 @@ func (rcvr *BaseReqHandler) SetWorkThreadNum(workThreadNum int) {
 }
 
 func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
-	rcvr.stopBatchRetrieveCh = make(chan struct{}, 1)
-	rcvr.batchRetrieveFunc = func() {
+	// Capture the stop channel locally so the goroutine always references
+	// its own channel even if Start() is called again (second-delay cycle).
+	rcvr.stopChLock.Lock()
+	rcvr.stopBatchRetrieveCh = make(chan struct{})
+	stopCh := rcvr.stopBatchRetrieveCh
+	rcvr.stopChLock.Unlock()
+	go func() {
 		for {
 			select {
-			case <-rcvr.stopBatchRetrieveCh:
+			case <-stopCh:
 				return
 			default:
 				reqs := rcvr.AsyncHandleReqs(h)
@@ -155,17 +161,18 @@ func (rcvr *BaseReqHandler) Start(h ReqHandler) error {
 				}
 			}
 		}
-	}
-	go rcvr.batchRetrieveFunc()
+	}()
 
 	return nil
 }
 
 func (rcvr *BaseReqHandler) Stop() {
-	if rcvr.batchRetrieveFunc != nil {
-		rcvr.batchRetrieveFunc = nil
-		rcvr.stopBatchRetrieveCh <- struct{}{}
+	rcvr.stopChLock.Lock()
+	if rcvr.stopBatchRetrieveCh != nil {
+		close(rcvr.stopBatchRetrieveCh)
+		rcvr.stopBatchRetrieveCh = nil
 	}
+	rcvr.stopChLock.Unlock()
 	if rcvr.reqsQueue != nil {
 		rcvr.reqsQueue.Clear()
 	}

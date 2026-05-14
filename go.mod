@@ -1,10 +1,10 @@
 module github.com/alibaba/schedulerx-worker-go
 
-go 1.20
+go 1.21
 
 require (
 	github.com/asynkron/protoactor-go v0.0.0-20230916135836-b14bb1f51af6
-	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/panjf2000/ants/v2 v2.10.0
 	github.com/shirou/gopsutil/v4 v4.25.2

@@ -60,18 +60,21 @@ type BroadcastTaskMaster struct {
 
 func NewBroadcastTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) taskmaster.TaskMaster {
 	broadcastTaskMaster := &BroadcastTaskMaster{
-		running:    false,
-		monitor:    false,
-		allWorkers: []string{},
-		cycleCtx:   context.Background(),
+		running:     false,
+		monitor:     false,
+		allWorkers:  []string{},
+		cycleCtx:    context.Background(),
 		cycleCancel: func() {},
 	}
 
-	statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, broadcastTaskMaster, jobInstanceInfo)
 	if utils.IsSecondTypeJob(common.TimeType(jobInstanceInfo.GetTimeType())) {
-		statusHandler = NewSecondJobUpdateInstanceStatusHandler(actorCtx, broadcastTaskMaster, jobInstanceInfo)
+		secondHandler := NewSecondJobUpdateInstanceStatusHandler(actorCtx, broadcastTaskMaster, jobInstanceInfo)
+		broadcastTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, secondHandler)
+		secondHandler.init()
+	} else {
+		statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, broadcastTaskMaster, jobInstanceInfo)
+		broadcastTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, statusHandler)
 	}
-	broadcastTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, statusHandler)
 
 	return broadcastTaskMaster
 }
@@ -367,6 +370,7 @@ func (m *BroadcastTaskMaster) checkWorkerAlive(ctx context.Context) {
 			return
 		}
 		if !m.isMonitor() {
+			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 

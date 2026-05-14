@@ -122,6 +122,7 @@ func (g *GroupManager) getAppGroupId(groupId, appKey string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("request appGroupId failed, groupId:%s, err:%s", groupId, err.Error())
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("request appGroupId failed, groupId:%s, status:%d", groupId, resp.StatusCode)
 	}
@@ -130,7 +131,6 @@ func (g *GroupManager) getAppGroupId(groupId, appKey string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("request appGroupId failed, groupId:%s, read body error:%s", groupId, err.Error())
 	}
-	defer resp.Body.Close()
 	var respData struct {
 		Success bool   `json:"success"`
 		Message string `json:"message"`
@@ -238,6 +238,7 @@ func (g *GroupManager) getAppGroup(groupId, appKey string) (*common.AppGroupInfo
 	if err != nil {
 		return nil, fmt.Errorf("request appGroup failed, groupId:%s, err:%s", groupId, err.Error())
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("request appGroup failed, groupId:%s, status:%d", groupId, resp.StatusCode)
 	}
@@ -246,7 +247,6 @@ func (g *GroupManager) getAppGroup(groupId, appKey string) (*common.AppGroupInfo
 	if err != nil {
 		return nil, fmt.Errorf("request appGroup failed, groupId:%s, read body error:%s", groupId, err.Error())
 	}
-	defer resp.Body.Close()
 	var respData struct {
 		Success bool                 `json:"success"`
 		Message string               `json:"message"`

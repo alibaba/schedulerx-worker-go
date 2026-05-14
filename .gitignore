@@ -33,3 +33,9 @@
 Session.vim
 .netrwhist
 
+# Local sqlite database files
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+

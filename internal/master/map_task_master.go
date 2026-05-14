@@ -95,11 +95,14 @@ func NewMapTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Co
 		// taskBlockingQueue:     batch.NewReqQueue(100000),
 	}
 
-	statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, mapTaskMaster, jobInstanceInfo)
 	if utils.IsSecondTypeJob(common.TimeType(jobInstanceInfo.GetTimeType())) {
-		statusHandler = NewSecondJobUpdateInstanceStatusHandler(actorCtx, mapTaskMaster, jobInstanceInfo)
+		secondHandler := NewSecondJobUpdateInstanceStatusHandler(actorCtx, mapTaskMaster, jobInstanceInfo)
+		mapTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, secondHandler)
+		secondHandler.init()
+	} else {
+		statusHandler := NewCommonUpdateInstanceStatusHandler(actorCtx, mapTaskMaster, jobInstanceInfo)
+		mapTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, statusHandler)
 	}
-	mapTaskMaster.TaskMaster = NewTaskMaster(actorCtx, jobInstanceInfo, statusHandler)
 
 	// mapTaskMaster.taskStatusReqBatchHandler = batch.NewTMStatusReqHandler(jobInstanceInfo.GetJobInstanceId(), 1, 1, 3000, mapTaskMaster.taskStatusReqQueue)
 	// if jobInstanceInfo.GetXattrs() != "" {
@@ -1084,11 +1087,14 @@ func (m *MapTaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
 	if m.taskBlockingQueue != nil {
 		m.taskBlockingQueue.Clear()
 	}
+	// Stop batch handlers to terminate their goroutines, preventing goroutine
+	// leaks across second-delay cycles. Stop() sends the stop signal AND clears
+	// the queue, so a separate Clear() call is unnecessary.
 	if m.taskDispatchReqHandler != nil {
-		m.taskDispatchReqHandler.Clear()
+		m.taskDispatchReqHandler.Stop()
 	}
 	if m.taskStatusReqBatchHandler != nil {
-		m.taskStatusReqBatchHandler.Clear()
+		m.taskStatusReqBatchHandler.Stop()
 	}
 	m.taskResultMap = sync.Map{}
 	m.taskStatusMap = sync.Map{}

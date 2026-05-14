@@ -60,7 +60,13 @@ func OnMsgReceived(ctx context.Context, connpool pool.ConnPool) {
 		}
 		if err != nil { // broke pipe
 			// EADDRNOTAVAIL
-			connpool.ReconnectTrigger() <- struct{}{}
+			// Non-blocking send: a single pending reconnect signal is enough;
+			// dropping duplicates avoids stalling the read loop when the
+			// reconnect goroutine is busy dialing.
+			select {
+			case connpool.ReconnectTrigger() <- struct{}{}:
+			default:
+			}
 			logger.Errorf("OnMsgReceived broke pipe, err=%s", err.Error())
 			time.Sleep(100 * time.Millisecond) // maybe network is broken, just wait a moment
 			continue
