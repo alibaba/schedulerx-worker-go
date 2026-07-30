@@ -46,6 +46,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor"
 	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
+	"github.com/alibaba/schedulerx-worker-go/tracer"
 )
 
 var (
@@ -977,12 +978,15 @@ func (m *MapTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult
 		workerProgressCounter.(*common.WorkerProgressCounter).IncrementTotal()
 		workerProgressCounter.(*common.WorkerProgressCounter).IncrementRunning()
 
+		tr := tracer.GetTracerOrDefault()
+		jobCtx = tr.Start(jobCtx)
 		result, err := mpProcessor.Reduce(jobCtx)
 		if err != nil {
 			result = processor.NewProcessResult()
 			result.SetFailed()
 			result.SetResult("reduce exception: " + err.Error())
 		}
+		result = tr.End(jobCtx, result)
 
 		if result.Status() == processor.InstanceStatusSucceed {
 			if val, ok := m.taskProgressMap.Load(reduceTaskName); ok {

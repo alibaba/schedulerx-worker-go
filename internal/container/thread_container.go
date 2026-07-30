@@ -35,6 +35,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor"
 	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
+	"github.com/alibaba/schedulerx-worker-go/tracer"
 )
 
 var _ Container = (*ThreadContainer)(nil)
@@ -69,8 +70,13 @@ func (c *ThreadContainer) Start() {
 	uniqueId := utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId())
 	c.containerPool.SetContext(c.jobCtx)
 
+	// 统一挂任务级 trace：Start 会把携带 span 的 ctx 写回 jobCtx，
+	// 框架日志、业务日志与下游调用（DB/HTTP 等）自动共用同一 traceId。
+	tr := tracer.GetTracerOrDefault()
+	c.jobCtx = tr.Start(c.jobCtx)
+
 	startTime := time.Now().UnixMilli()
-	logger.Debugf("start run container, uniqueId=%v, cost=%vms, jobContext=%+v", uniqueId, startTime-c.jobCtx.ScheduleTime().UnixMilli(), c.jobCtx)
+	logger.DebugfCtx(c.jobCtx, "start run container, uniqueId=%v, cost=%vms, jobContext=%+v", uniqueId, startTime-c.jobCtx.ScheduleTime().UnixMilli(), c.jobCtx)
 
 	defer func() {
 		// clean containerPool
@@ -78,7 +84,7 @@ func (c *ThreadContainer) Start() {
 		c.containerPool.RemoveContext()
 
 		if e := recover(); e != nil {
-			logger.Errorf("Start run container panic, error=%v, stack=%s", e, debug.Stack())
+			logger.ErrorfCtx(c.jobCtx, "Start run container panic, error=%v, stack=%s", e, debug.Stack())
 			errMsg := fmt.Sprintf("Process task panic, error=%v, stack=%s", e, debug.Stack())
 			result := processor.NewProcessResult(processor.WithFailed(), processor.WithResult(errMsg))
 			workerAddr := c.actorCtx.ActorSystem().Address()
@@ -103,9 +109,13 @@ func (c *ThreadContainer) Start() {
 		retMsg := fmt.Sprintf("jobName=%s not found, maybe forgot to register it by the client", c.jobCtx.JobName())
 		result = processor.NewProcessResult(processor.WithFailed(), processor.WithResult(retMsg))
 		c.reportTaskStatus(result, workerAddr)
-		logger.Errorf("Process task=%s failed, because it's unregistered. ", jobName)
+		logger.ErrorfCtx(c.jobCtx, "Process task=%s failed, because it's unregistered. ", jobName)
 		return
 	}
+
+	defer func() {
+		result = tr.End(c.jobCtx, result)
+	}()
 
 	result, err = task.Process(c.jobCtx)
 	if err != nil {
@@ -115,12 +125,12 @@ func (c *ThreadContainer) Start() {
 		}
 		result = processor.NewProcessResult(processor.WithFailed(), processor.WithResult(fixedErrMsg))
 		c.reportTaskStatus(result, workerAddr)
-		logger.Errorf("Process task=%s failed, uniqueId=%v, serialNum=%v, err=%s ", c.jobCtx.TaskName(), uniqueId, c.jobCtx.SerialNum(), err.Error())
+		logger.ErrorfCtx(c.jobCtx, "Process task=%s failed, uniqueId=%v, serialNum=%v, err=%s ", c.jobCtx.TaskName(), uniqueId, c.jobCtx.SerialNum(), err.Error())
 		return
 	}
 
 	endTime := time.Now().UnixMilli()
-	logger.Debugf("container run finished, uniqueId=%v, cost=%dms", uniqueId, endTime-startTime)
+	logger.DebugfCtx(c.jobCtx, "container run finished, uniqueId=%v, cost=%dms", uniqueId, endTime-startTime)
 
 	if result == nil {
 		result = processor.NewProcessResult(processor.WithFailed(), processor.WithResult("result can't be null"))
@@ -143,13 +153,13 @@ func (c *ThreadContainer) Start() {
 }
 
 func (c *ThreadContainer) Kill() {
-	logger.Infof("kill container, jobInstanceId=%v, content=%s", c.jobCtx.JobInstanceId(), c.jobCtx.Content())
+	logger.InfofCtx(c.jobCtx, "kill container, jobInstanceId=%v, content=%s", c.jobCtx.JobInstanceId(), c.jobCtx.Content())
 	jobName := gjson.Get(c.jobCtx.Content(), "jobName").String()
 	if jobName != "" {
 		taskMasterPool := masterpool.GetTaskMasterPool()
 		task, ok := taskMasterPool.Tasks().Find(jobName)
 		if !ok {
-			logger.Warnf("Kill task=%s failed, because it's not found. ", jobName)
+			logger.WarnfCtx(c.jobCtx, "Kill task=%s failed, because it's not found. ", jobName)
 		} else {
 			kt, ok := task.(processor.KillProcessor)
 			if ok {
@@ -194,7 +204,7 @@ func (c *ThreadContainer) reportTaskStatus(result *processor.ProcessResult, work
 	}
 
 	submitResult := batch.GetContainerStatusReqHandlerPool().SubmitReq(c.jobCtx.JobInstanceId(), req)
-	logger.Debugf("reportTaskStatus instanceId=%v submitResult=%v, processResult=%v", utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId()), submitResult, result)
+	logger.DebugfCtx(c.jobCtx, "reportTaskStatus instanceId=%v submitResult=%v, processResult=%v", utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId()), submitResult, result)
 	if !submitResult {
 		c.actorCtx.Request(c.masterPid, req)
 	}

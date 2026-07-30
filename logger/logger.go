@@ -17,6 +17,7 @@
 package logger
 
 import (
+	"context"
 	"os"
 	"path"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/natefinch/lumberjack"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Logger interface {
@@ -170,4 +172,43 @@ func Warnf(msg string, args ...interface{}) {
 
 func Errorf(msg string, args ...interface{}) {
 	rLog.Errorf(msg, args...)
+}
+
+// DebugfCtx 与 Debugf 类似，但会从 ctx 中提取 trace 信息注入日志，
+// 用于把框架日志与任务级 trace 串联（与业务日志共用同一 trace_id）。
+func DebugfCtx(ctx context.Context, msg string, args ...interface{}) {
+	rLog.Debugf(tracePrefix(ctx)+msg, args...)
+}
+
+// InfofCtx 参考 DebugfCtx。
+func InfofCtx(ctx context.Context, msg string, args ...interface{}) {
+	rLog.Infof(tracePrefix(ctx)+msg, args...)
+}
+
+// WarnfCtx 参考 DebugfCtx。
+func WarnfCtx(ctx context.Context, msg string, args ...interface{}) {
+	rLog.Warnf(tracePrefix(ctx)+msg, args...)
+}
+
+// ErrorfCtx 参考 DebugfCtx。
+func ErrorfCtx(ctx context.Context, msg string, args ...interface{}) {
+	rLog.Errorf(tracePrefix(ctx)+msg, args...)
+}
+
+// tracePrefix 提取 ctx 中的 span 信息生成日志前缀；
+// ctx 为空、无有效 span 或 ctx 实现异常（如内嵌 context 未初始化）时返回空串，不影响原日志。
+func tracePrefix(ctx context.Context) (prefix string) {
+	if ctx == nil {
+		return ""
+	}
+	defer func() {
+		if recover() != nil {
+			prefix = ""
+		}
+	}()
+	sc := trace.SpanContextFromContext(ctx)
+	if !sc.IsValid() {
+		return ""
+	}
+	return "[trace_id=" + sc.TraceID().String() + ",span_id=" + sc.SpanID().String() + "] "
 }
