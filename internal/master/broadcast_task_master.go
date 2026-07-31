@@ -30,7 +30,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/alibaba/schedulerx-worker-go/config"
-	"github.com/alibaba/schedulerx-worker-go/internal/actor/common"
+	actorcomm "github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
 	"github.com/alibaba/schedulerx-worker-go/internal/masterpool"
@@ -40,6 +40,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor"
 	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
+	"github.com/alibaba/schedulerx-worker-go/tracer"
 )
 
 var _ taskmaster.TaskMaster = (*BroadcastTaskMaster)(nil)
@@ -520,10 +521,14 @@ func (m *BroadcastTaskMaster) preProcess(jobInstanceInfo *common.JobInstanceInfo
 
 	if p, ok := task.(processor.BroadcastProcessor); ok {
 		startTime := time.Now().UnixMilli()
+		tr := tracer.GetTracerOrDefault()
+		jobCtx = tr.Start(jobCtx)
 		if err := p.PreProcess(jobCtx); err != nil {
+			tr.End(jobCtx, processor.NewProcessResult(processor.WithFailed(), processor.WithResult(err.Error())))
 			return fmt.Errorf("preProcess broadcast task=%s failed, jobInstanceId=%v, taskName=%s, serialNum=%v, err=%s ", jobName, jobInstanceInfo.GetJobInstanceId(), jobCtx.TaskName(), jobCtx.SerialNum(), err.Error())
 		}
-		logger.Infof("preProcess broadcast task=%s finished, jobInstanceId=%v, taskName=%s, cost=%vms", jobName, jobInstanceInfo.GetJobInstanceId(), jobCtx.TaskName(), time.Now().UnixMilli()-startTime)
+		tr.End(jobCtx, processor.NewProcessResult(processor.WithSucceed()))
+		logger.InfofCtx(jobCtx, "preProcess broadcast task=%s finished, jobInstanceId=%v, taskName=%s, cost=%vms", jobName, jobInstanceInfo.GetJobInstanceId(), jobCtx.TaskName(), time.Now().UnixMilli()-startTime)
 	}
 	return nil
 }
@@ -549,13 +554,16 @@ func (m *BroadcastTaskMaster) PostFinish(jobInstanceId int64) *processor.Process
 
 	if p, ok := task.(processor.BroadcastProcessor); ok {
 		startTime := time.Now().UnixMilli()
+		tr := tracer.GetTracerOrDefault()
+		jobCtx = tr.Start(jobCtx)
 		result, err := p.PostProcess(jobCtx)
-		logger.Infof("PostFinish broadcast task=%s finished, jobInstanceId=%v, taskName=%s, cost=%vms", jobName, jobInstanceId, jobCtx.TaskName(), time.Now().UnixMilli()-startTime)
+		logger.InfofCtx(jobCtx, "PostFinish broadcast task=%s finished, jobInstanceId=%v, taskName=%s, cost=%vms", jobName, jobInstanceId, jobCtx.TaskName(), time.Now().UnixMilli()-startTime)
 		if err != nil {
-			logger.Errorf("PostFinish broadcast task=%s failed, jobInstanceId=%v, taskName=%s, serialNum=%v, err=%s ", jobName, jobInstanceId, jobCtx.TaskName(), jobCtx.SerialNum(), err.Error())
+			tr.End(jobCtx, processor.NewProcessResult(processor.WithFailed(), processor.WithResult(err.Error())))
+			logger.ErrorfCtx(jobCtx, "PostFinish broadcast task=%s failed, jobInstanceId=%v, taskName=%s, serialNum=%v, err=%s ", jobName, jobInstanceId, jobCtx.TaskName(), jobCtx.SerialNum(), err.Error())
 			return defaultRet
 		}
-		return result
+		return tr.End(jobCtx, result)
 	}
 
 	return defaultRet

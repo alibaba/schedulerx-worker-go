@@ -42,3 +42,13 @@ func InitTracer(t Tracer) {
 func GetTracer() Tracer {
 	return tracer
 }
+
+// GetTracerOrDefault 返回用户通过 WithTracer 注册的 Tracer；
+// 若未注册，则返回内置的 OpenTelemetry 默认实现，保证业务回调
+// （Process/PreProcess/PostProcess/Reduce 等）默认具备 trace 串联能力。
+func GetTracerOrDefault() Tracer {
+	if tracer != nil {
+		return tracer
+	}
+	return Default()
+}
