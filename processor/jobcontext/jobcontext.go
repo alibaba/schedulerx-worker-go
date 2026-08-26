@@ -88,6 +88,9 @@ type JobContext struct {
 
 	timeType       int32
 	timeExpression string
+
+	// trigger type of the job instance
+	triggerType int32
 }
 
 func (j *JobContext) UpstreamData() []*common.JobInstanceData {
@@ -352,4 +355,12 @@ func (j *JobContext) TimeExpression() string {
 
 func (j *JobContext) SetTimeExpression(timeExpression string) {
 	j.timeExpression = timeExpression
+}
+
+func (j *JobContext) TriggerType() int32 {
+	return j.triggerType
+}
+
+func (j *JobContext) SetTriggerType(triggerType int32) {
+	j.triggerType = triggerType
 }

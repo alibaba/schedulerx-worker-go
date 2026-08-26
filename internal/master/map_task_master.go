@@ -33,7 +33,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/alibaba/schedulerx-worker-go/config"
-	"github.com/alibaba/schedulerx-worker-go/internal/actor/common"
+	actorcomm "github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/batch"
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/constants"
@@ -935,6 +935,7 @@ func (m *MapTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult
 	jobCtx.SetJobParameters(m.GetJobInstanceInfo().GetParameters())
 	jobCtx.SetInstanceParameters(m.GetJobInstanceInfo().GetInstanceParameters())
 	jobCtx.SetUser(m.GetJobInstanceInfo().GetUser())
+	jobCtx.SetTriggerType(m.GetJobInstanceInfo().GetTriggerType())
 	// convert sync.Map to plain map for jobCtx
 	taskResults := make(map[int64]string)
 	m.taskResultMap.Range(func(k, v any) bool {

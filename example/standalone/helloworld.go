@@ -31,7 +31,7 @@ type HelloWorld struct{}
 var Stop = false
 
 func (h *HelloWorld) Process(ctx *jobcontext.JobContext) (*processor.ProcessResult, error) {
-	fmt.Println("[Process] Start process my task: Hello world!")
+	fmt.Printf("[Process] Start process my task: Hello world，triggerType=%d， attempt=%d\n", ctx.TriggerType(), ctx.Attempt())
 	// mock execute task
 	for i := 0; i < 10; i++ {
 		fmt.Printf("Hello%d\n", i)

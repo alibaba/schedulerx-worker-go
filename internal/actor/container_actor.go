@@ -340,6 +340,7 @@ func convertMasterStartContainerRequest2JobContext(req *schedulerx.MasterStartCo
 	jobCtx.SetShardingNum(req.GetShardingNum())
 	jobCtx.SetTimeType(req.GetTimeType())
 	jobCtx.SetTimeExpression(req.GetTimeExpression())
+	jobCtx.SetTriggerType(req.GetTriggerType())
 	jobCtx.Context = context.Background()
 	return jobCtx, nil
 }

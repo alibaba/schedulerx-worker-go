@@ -580,6 +580,7 @@ func (m *BroadcastTaskMaster) convertJobInstance2JobContext(jobInstanceInfo *com
 	jobCtx.SetJobParameters(jobInstanceInfo.GetParameters())
 	jobCtx.SetInstanceParameters(jobInstanceInfo.GetInstanceParameters())
 	jobCtx.SetUser(jobInstanceInfo.GetUser())
+	jobCtx.SetTriggerType(jobInstanceInfo.GetTriggerType())
 
 	taskResults := make(map[int64]string)
 	m.taskIdResultMap.Range(func(key, value any) bool {

@@ -400,6 +400,7 @@ func (m *TaskMaster) convert2StartContainerRequest(jobInstanceInfo *common.JobIn
 	}
 	req.TimeType = proto.Int32(jobInstanceInfo.GetTimeType())
 	req.TimeExpression = proto.String(jobInstanceInfo.GetTimeExpression())
+	req.TriggerType = proto.Int32(jobInstanceInfo.GetTriggerType())
 
 	return req, nil
 }
