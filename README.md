@@ -402,3 +402,46 @@ func main() {
 ## 示例
 
 参考 example 目录
+
+## FAQ
+
+### 如何响应取消任务
+
+```go
+type HelloWorld struct{}
+
+type JobContextCancelKey *jobcontext.JobContext
+
+func (h *HelloWorld) Process(ctx *jobcontext.JobContext) (*processor.ProcessResult, error) {
+	var cancelCauseFunc context.CancelCauseFunc
+	ctx.Context, cancelCauseFunc = context.WithCancelCause(ctx.Context)
+	ctx.Context = context.WithValue(ctx.Context, JobContextCancelKey(ctx), cancelCauseFunc)
+
+	fmt.Printf("[Process] Start process my task: Hello world，attempt=%d\n", ctx.Attempt())
+	// mock execute task
+	done := false
+	for i := 0; !done; i++ {
+		fmt.Printf("Hello %d\n", i)
+
+		select {
+		case <-ctx.Done():
+			done = true
+		case <-time.After(2 * time.Second):
+		}
+	}
+
+	ret := new(processor.ProcessResult)
+	ret.SetSucceed()
+	fmt.Println("[Process] End process my task: Hello world!")
+	return ret, nil
+}
+
+func (h *HelloWorld) Kill(ctx *jobcontext.JobContext) error {
+	fmt.Println("[Kill] Start kill my task: Hello world!")
+	cancelCauseFunc, ok := ctx.Context.Value(JobContextCancelKey(ctx)).(context.CancelCauseFunc)
+	if ok {
+		cancelCauseFunc(nil)
+	}
+	return nil
+}
+```
