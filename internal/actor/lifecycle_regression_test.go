@@ -102,22 +102,22 @@ func TestLifecycleKillInstanceDoesNotMatchLongerInstanceID(t *testing.T) {
 
 func TestLifecycleNewCycleIgnoresOldDestroyAndPush(t *testing.T) {
 	h := newPushHarness(t)
-	first := h.request(1, "parallel", proto.Int32(1))
+	first := h.request(1, "parallel", proto.Int32(2))
 	first.SerialNum = proto.Int64(7)
 	h.send(first)
 	h.started()
 	h.send(&schedulerx.MasterDestroyContainerPoolRequest{JobId: proto.Int64(1), JobInstanceId: proto.Int64(1001), SerialNum: proto.Int64(7)})
-	next := h.request(1, "parallel", proto.Int32(1))
+	next := h.request(1, "parallel", proto.Int32(2))
 	next.SerialNum = proto.Int64(8)
 	if !h.send(next).(*schedulerx.MasterStartContainerResponse).GetSuccess() {
 		t.Fatal("new cycle rejected")
 	}
 	h.started()
 	h.send(&schedulerx.MasterDestroyContainerPoolRequest{JobId: proto.Int64(1), JobInstanceId: proto.Int64(1001), SerialNum: proto.Int64(7)})
-	late := h.request(99, "parallel", proto.Int32(1))
+	late := h.request(99, "parallel", proto.Int32(2))
 	late.SerialNum = proto.Int64(7)
 	h.send(late)
-	second := h.request(2, "parallel", proto.Int32(1))
+	second := h.request(2, "parallel", proto.Int32(2))
 	second.SerialNum = proto.Int64(8)
 	h.send(second)
 	h.assertNoStart()
@@ -225,6 +225,8 @@ func TestLifecycleHigherAttemptCanReopenClosedInstance(t *testing.T) {
 	if !h.send(retry).(*schedulerx.MasterStartContainerResponse).GetSuccess() {
 		t.Fatal("explicit instance retry rejected")
 	}
+	h.assertNoStart()
+	h.release()
 	h.started()
 }
 
@@ -277,12 +279,12 @@ func TestLifecycleLegacyStandaloneDestroyWithoutJobID(t *testing.T) {
 
 func TestLifecycleOldAttemptCannotDestroyOrKillRetry(t *testing.T) {
 	h := newPushHarness(t)
-	first := h.request(1, "parallel", proto.Int32(1))
+	first := h.request(1, "parallel", proto.Int32(2))
 	first.SerialNum = proto.Int64(7)
 	h.send(first)
 	h.started()
 	h.send(&schedulerx.MasterDestroyContainerPoolRequest{JobId: proto.Int64(1), JobInstanceId: proto.Int64(1001), SerialNum: proto.Int64(7)})
-	retry := h.request(1, "parallel", proto.Int32(1))
+	retry := h.request(1, "parallel", proto.Int32(2))
 	retry.Attempt = proto.Int32(1)
 	h.send(retry)
 	h.started()
@@ -301,7 +303,7 @@ func TestLifecycleOldAttemptCannotDestroyOrKillRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.send(kill)
-	next := h.request(2, "parallel", proto.Int32(1))
+	next := h.request(2, "parallel", proto.Int32(2))
 	next.Attempt = proto.Int32(1)
 	h.send(next)
 	h.assertNoStart()
@@ -316,19 +318,19 @@ func TestLifecycleRoutingActorsShareClosedEpoch(t *testing.T) {
 	remoteWorker := newContainerActorWithState(h.worker.containerAdmissionState)
 	remotePID := h.system.Root.Spawn(actor.PropsFromProducer(func() actor.Actor { return remoteWorker }))
 	defer func() { _ = h.system.Root.StopFuture(remotePID).Wait() }()
-	first := h.request(1, "parallel", proto.Int32(1))
+	first := h.request(1, "parallel", proto.Int32(2))
 	first.SerialNum = proto.Int64(7)
 	h.send(first)
 	h.started()
 	h.send(&schedulerx.MasterDestroyContainerPoolRequest{JobId: proto.Int64(1), JobInstanceId: proto.Int64(1001), SerialNum: proto.Int64(7), Attempt: proto.Int32(0)})
-	late := h.request(2, "parallel", proto.Int32(1))
+	late := h.request(2, "parallel", proto.Int32(2))
 	late.SerialNum = proto.Int64(7)
 	response, err := h.system.Root.RequestFuture(remotePID, late, time.Second).Result()
 	if err != nil || !response.(*schedulerx.MasterStartContainerResponse).GetSuccess() {
 		t.Fatalf("late delivery response: %v / %v", response, err)
 	}
 	h.assertNoStart()
-	retry := h.request(2, "parallel", proto.Int32(1))
+	retry := h.request(2, "parallel", proto.Int32(2))
 	retry.Attempt = proto.Int32(1)
 	response, err = h.system.Root.RequestFuture(remotePID, retry, time.Second).Result()
 	if err != nil || !response.(*schedulerx.MasterStartContainerResponse).GetSuccess() {
@@ -373,7 +375,7 @@ func TestLifecycleDelayedKillCannotReportIntoNewCycle(t *testing.T) {
 	remoteWorker := newContainerActorWithState(h.worker.containerAdmissionState)
 	remotePID := h.system.Root.Spawn(actor.PropsFromProducer(func() actor.Actor { return remoteWorker }))
 	defer func() { _ = h.system.Root.StopFuture(remotePID).Wait() }()
-	first := h.request(1, "parallel", proto.Int32(1))
+	first := h.request(1, "parallel", proto.Int32(2))
 	first.SerialNum = proto.Int64(7)
 	h.send(first)
 	h.started()
@@ -386,7 +388,7 @@ func TestLifecycleDelayedKillCannotReportIntoNewCycle(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Kill callback did not run")
 	}
-	next := h.request(2, "parallel", proto.Int32(1))
+	next := h.request(2, "parallel", proto.Int32(2))
 	next.SerialNum = proto.Int64(8)
 	response, err := h.system.Root.RequestFuture(remotePID, next, time.Second).Result()
 	if err != nil || !response.(*schedulerx.MasterStartContainerResponse).GetSuccess() {

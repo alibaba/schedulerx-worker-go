@@ -34,6 +34,7 @@ type Pool interface {
 	Get(uniqueId string) Container
 	Put(uniqueId string, container Container)
 	Contain(uniqueId string) bool
+	Cancel(uniqueId string, expected Container) bool
 	Remove(uniqueId string, expected Container)
 	GetContext() *jobcontext.JobContext
 	SetContext(jobContext *jobcontext.JobContext)

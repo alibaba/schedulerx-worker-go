@@ -19,6 +19,8 @@ package container
 import (
 	"fmt"
 	"runtime/debug"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
@@ -46,6 +48,9 @@ type ThreadContainer struct {
 	containerPool Pool
 	masterPid     *actor.PID
 	statusHandler *batch.ContainerStatusReqHandler
+	killed        atomic.Bool
+	statusMu      sync.Mutex
+	finished      bool
 }
 
 func NewThreadContainer(jobCtx *jobcontext.JobContext, actorCtx actor.Context) (*ThreadContainer, error) {
@@ -74,8 +79,7 @@ func (c *ThreadContainer) Start() {
 	uniqueID := utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId())
 	returned := false
 	defer func() {
-		defer c.containerPool.Remove(uniqueID, c)
-		defer c.containerPool.RemoveContext()
+		defer c.finish(uniqueID)
 		if returned {
 			return
 		}
@@ -87,8 +91,20 @@ func (c *ThreadContainer) Start() {
 		}
 		c.reportTaskStatus(processor.NewProcessResult(processor.WithFailed(), processor.WithResult(message)), c.actorCtx.ActorSystem().Address())
 	}()
-	c.start()
+	if !c.killed.Load() {
+		c.start()
+	}
 	returned = true
+}
+
+// Serialize terminal cancellation with completion/removal, so a delayed user
+// Kill callback cannot report against a same-ID replacement in the same cycle.
+func (c *ThreadContainer) finish(uniqueID string) {
+	c.statusMu.Lock()
+	defer c.statusMu.Unlock()
+	c.finished = true
+	c.containerPool.Remove(uniqueID, c)
+	c.containerPool.RemoveContext()
 }
 
 func (c *ThreadContainer) start() {
@@ -99,6 +115,9 @@ func (c *ThreadContainer) start() {
 	// 统一挂任务级 trace：Start 会把携带 span 的 ctx 写回 jobCtx，
 	// 框架日志、业务日志与下游调用（DB/HTTP 等）自动共用同一 traceId。
 	tr := tracer.GetTracerOrDefault()
+	if c.killed.Load() {
+		return
+	}
 	c.jobCtx = tr.Start(c.jobCtx)
 
 	startTime := time.Now().UnixMilli()
@@ -139,6 +158,9 @@ func (c *ThreadContainer) start() {
 		result = tr.End(c.jobCtx, result)
 	}()
 
+	if c.killed.Load() {
+		return
+	}
 	result, err = task.Process(c.jobCtx)
 	if err != nil {
 		fixedErrMsg := err.Error()
@@ -174,7 +196,27 @@ func (c *ThreadContainer) start() {
 	c.reportTaskStatus(result, workerAddr)
 }
 
+func (c *ThreadContainer) cancelExecution() bool {
+	c.statusMu.Lock()
+	defer c.statusMu.Unlock()
+	if c.finished || c.killed.Load() {
+		return false
+	}
+	c.killed.Store(true)
+	c.sendTaskStatus(processor.NewProcessResult(processor.WithFailed(), processor.WithResult("killed")), c.actorCtx.ActorSystem().Address())
+	uniqueID := utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId())
+	if !c.containerPool.Cancel(uniqueID, c) {
+		c.finished = true
+		c.containerPool.Remove(uniqueID, c)
+	}
+	return true
+}
+
 func (c *ThreadContainer) Kill() {
+	if !c.cancelExecution() {
+		return
+	}
+
 	logger.InfofCtx(c.jobCtx, "kill container, jobInstanceId=%v, content=%s", c.jobCtx.JobInstanceId(), c.jobCtx.Content())
 	jobName := gjson.Get(c.jobCtx.Content(), "jobName").String()
 	if jobName != "" {
@@ -189,14 +231,18 @@ func (c *ThreadContainer) Kill() {
 			}
 		}
 	}
-
-	c.reportTaskStatus(processor.NewProcessResult(processor.WithFailed(), processor.WithResult("killed")), c.actorCtx.ActorSystem().Address())
-
-	uniqueId := utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId())
-	c.containerPool.Remove(uniqueId, c)
 }
 
 func (c *ThreadContainer) reportTaskStatus(result *processor.ProcessResult, workerAddr string) {
+	c.statusMu.Lock()
+	defer c.statusMu.Unlock()
+	if c.killed.Load() {
+		return
+	}
+	c.sendTaskStatus(result, workerAddr)
+}
+
+func (c *ThreadContainer) sendTaskStatus(result *processor.ProcessResult, workerAddr string) {
 	req := &schedulerx.ContainerReportTaskStatusRequest{
 		JobId:                   proto.Int64(c.jobCtx.JobId()),
 		JobInstanceId:           proto.Int64(c.jobCtx.JobInstanceId()),

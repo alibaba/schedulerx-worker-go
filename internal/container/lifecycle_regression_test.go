@@ -215,3 +215,49 @@ func TestLifecycleOldCompletionCannotReportIntoNewCycle(t *testing.T) {
 		t.Fatal("old completion entered the new cycle's status batch")
 	}
 }
+
+func TestLowerQuotaWaitsForRetiredExecutions(t *testing.T) {
+	p := newTreadContainerPool()
+	started := make(chan int64, 3)
+	first, second := make(chan struct{}), make(chan struct{})
+	var one, two sync.Once
+	defer one.Do(func() { close(first) })
+	defer two.Do(func() { close(second) })
+	submitContainer(t, p, 9221, 1, 2, func() { started <- 1; <-first })
+	receiveTask(t, started)
+	submitContainer(t, p, 9221, 2, 2, func() { started <- 2; <-second })
+	receiveTask(t, started)
+	p.DestroyByInstance(9221)
+	submitContainer(t, p, 9221, 3, 1, func() { started <- 3 })
+	one.Do(func() { close(first) })
+	select {
+	case id := <-started:
+		t.Fatalf("lower quota ignored surviving retired execution: %d", id)
+	case <-time.After(50 * time.Millisecond):
+	}
+	two.Do(func() { close(second) })
+	if id := receiveTask(t, started); id != 3 {
+		t.Fatalf("new queue failed after old slots retired: %d", id)
+	}
+}
+
+func TestRetiredGoexitReleasesSlotForNewGeneration(t *testing.T) {
+	p := newTreadContainerPool()
+	started := make(chan int64, 2)
+	release := make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	submitContainer(t, p, 9222, 1, 1, func() { started <- 1; <-release; runtime.Goexit() })
+	receiveTask(t, started)
+	p.DestroyByInstance(9222)
+	submitContainer(t, p, 9222, 2, 1, func() { started <- 2 })
+	select {
+	case id := <-started:
+		t.Fatalf("new generation bypassed retired slot: %d", id)
+	case <-time.After(50 * time.Millisecond):
+	}
+	once.Do(func() { close(release) })
+	if id := receiveTask(t, started); id != 2 {
+		t.Fatalf("Goexit did not replenish current generation: %d", id)
+	}
+}

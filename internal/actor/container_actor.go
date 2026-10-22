@@ -32,6 +32,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/alibaba/schedulerx-worker-go/config"
+	actorcomm "github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/batch"
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/constants"
@@ -130,22 +131,15 @@ func (a *containerActor) handleBatchStartContainers(actorCtx actor.Context, req 
 		for _, startReq := range req.StartReqs {
 			uniqueId, err := a.startContainer(actorCtx, startReq)
 			if err != nil {
-				// report task fail status to task master
-				reportTaskStatusReq := &schedulerx.ContainerReportTaskStatusRequest{
-					JobId:         proto.Int64(startReq.GetJobId()),
-					JobInstanceId: proto.Int64(startReq.GetJobInstanceId()),
-					TaskId:        proto.Int64(startReq.GetTaskId()),
-					Status:        proto.Int32(int32(taskstatus.TaskStatusFailed)),
-					WorkerId:      proto.String(utils.GetWorkerId()),
-					WorkerAddr:    proto.String(actorCtx.ActorSystem().Address()),
-				}
-				if startReq.GetTaskName() != "" {
-					reportTaskStatusReq.TaskName = proto.String(startReq.GetTaskName())
-				}
-				if senderPid := sender; senderPid != nil {
-					actorCtx.Send(senderPid, reportTaskStatusReq)
+				// The batch Sender is a short-lived RequestFuture, not the master.
+				// Preserve the existing envelope ACK and report rejected tasks to the
+				// actual master router, with the original serial and failure reason.
+				report := a.convert2ContainerReportTaskStatusRequest(actorCtx, startReq, taskstatus.TaskStatusFailed, err.Error())
+				if startReq.GetInstanceMasterAkkaPath() != "" {
+					workerAddr := actorcomm.GetRealWorkerAddr(startReq.GetInstanceMasterAkkaPath())
+					actorCtx.Send(actorcomm.GetMapMasterPid(workerAddr), report)
 				} else {
-					logger.Warnf("Cannot send ContainerReportTaskStatusRequest due to sender is unknown in handleBatchStartContainers of containerActor, request=%+v", req)
+					logger.Errorf("cannot route rejected task status: missing master path, jobInstanceId=%d taskId=%d err=%v", startReq.GetJobInstanceId(), startReq.GetTaskId(), err)
 				}
 			}
 			logger.Debugf("submit container to containerPool, uniqueId=%v, cost=%vms", uniqueId, time.Now().UnixMilli()-startReq.GetScheduleTime())
@@ -230,7 +224,7 @@ func lifecycleEpoch(state *instanceAdmission, jobID int64, serial *int64, attemp
 	if attempt != nil {
 		targetAttempt = *attempt
 	}
-	if serial != nil {
+	if serial != nil && !(state != nil && attempt == nil && *serial == 0) {
 		targetSerial = *serial
 	}
 	stale := state != nil && (targetAttempt < state.attempt || targetAttempt == state.attempt && targetSerial < state.serial)
@@ -290,7 +284,7 @@ func (a *containerActor) handleKillContainer(actorCtx actor.Context, req *schedu
 				}
 				uniqueID := utils.GetUniqueId(jobID, instanceID, taskID)
 				if c := a.containerPool.Get(uniqueID); c != nil {
-					a.containerPool.Remove(uniqueID, c)
+					a.containerPool.Cancel(uniqueID, c)
 					toKill = append(toKill, c)
 				}
 			}

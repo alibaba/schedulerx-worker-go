@@ -98,33 +98,41 @@ func TestRemoveCancelsQueuedContainer(t *testing.T) {
 	}
 }
 
-func TestDestroyDiscardsQueueAndAllowsNewInstancePool(t *testing.T) {
+func TestDestroyDiscardsQueueAndSharesBudgetWithNewGeneration(t *testing.T) {
 	pool := newTreadContainerPool()
 	started := make(chan int64, 4)
-	release := make(chan struct{})
-	var once sync.Once
-	t.Cleanup(func() { once.Do(func() { close(release) }) })
-	submitContainer(t, pool, 1, 1, 1, func() { started <- 1; <-release })
+	oldRelease, newRelease := make(chan struct{}), make(chan struct{})
+	var oldOnce, newOnce sync.Once
+	t.Cleanup(func() { oldOnce.Do(func() { close(oldRelease) }); newOnce.Do(func() { close(newRelease) }) })
+	submitContainer(t, pool, 1, 1, 1, func() { started <- 1; <-oldRelease })
 	receiveTask(t, started)
 	submitContainer(t, pool, 1, 2, 1, func() { started <- 2 })
 	pool.DestroyByInstance(1)
 	if pool.Contain(utils.GetUniqueId(1, 1, 2)) {
-		t.Fatal("destroyed instance retained its queued container")
+		t.Fatal("destroyed instance retained queued work")
 	}
-	// A new second-delay cycle must not inherit the old queue or its limit.
+	// Raising the next generation's quota to two leaves one available slot,
+	// because the retired generation still owns one until it really exits.
 	for task := int64(3); task <= 4; task++ {
 		task := task
-		submitContainer(t, pool, 1, task, 2, func() { started <- task; <-release })
+		submitContainer(t, pool, 1, task, 2, func() { started <- task; <-newRelease })
 	}
-	for i := 0; i < 2; i++ {
-		if id := receiveTask(t, started); id < 3 {
-			t.Fatalf("destroyed queue executed task %d", id)
-		}
+	if id := receiveTask(t, started); id != 3 {
+		t.Fatalf("expected first new task, got %d", id)
 	}
-	once.Do(func() { close(release) })
 	select {
 	case id := <-started:
-		t.Fatalf("destroyed queue executed task %d after the old consumer returned", id)
+		t.Fatalf("retired execution was not counted; extra task %d started", id)
+	case <-time.After(50 * time.Millisecond):
+	}
+	oldOnce.Do(func() { close(oldRelease) })
+	if id := receiveTask(t, started); id != 4 {
+		t.Fatalf("released old slot did not run latest queue: %d", id)
+	}
+	newOnce.Do(func() { close(newRelease) })
+	select {
+	case id := <-started:
+		t.Fatalf("destroyed queue executed task %d", id)
 	case <-time.After(50 * time.Millisecond):
 	}
 }
@@ -164,10 +172,12 @@ func TestOldCycleCompletionDoesNotCancelReplacementTask(t *testing.T) {
 	receiveTask(t, started)
 	pool.DestroyByInstance(1)
 	submitContainer(t, pool, 1, 0, 1, func() { started <- 0; <-newRelease })
-	receiveTask(t, started)
 	submitContainer(t, pool, 1, 1, 1, func() { started <- 2 })
 	oldOnce.Do(func() { close(oldRelease) })
 	<-oldDone
+	if id := receiveTask(t, started); id != 0 {
+		t.Fatalf("old cleanup discarded new task: %d", id)
+	}
 	newOnce.Do(func() { close(newRelease) })
 	if id := receiveTask(t, started); id != 2 {
 		t.Fatalf("old cycle canceled replacement task: %d", id)
@@ -226,5 +236,42 @@ func TestNonMapSubmissionKeepsExistingExecutionPath(t *testing.T) {
 	}
 	for i := 0; i < 8; i++ {
 		receiveTask(t, started)
+	}
+}
+
+// Cancellation has two stages: unlink pending work, then publish its terminal
+// status before releasing the task identity. A second actor may push between them.
+func TestQueuedCancellationRetainsIdentityUntilTerminalPublished(t *testing.T) {
+	pool := newTreadContainerPool()
+	started := make(chan int64, 3)
+	release := make(chan struct{})
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	submitContainer(t, pool, 1, 1, 1, func() { started <- 1; <-release })
+	receiveTask(t, started)
+	submitContainer(t, pool, 1, 2, 1, func() { started <- 2 })
+	id := utils.GetUniqueId(1, 1, 2)
+	canceled := pool.Get(id)
+	pool.Cancel(id, canceled)
+	replacement := &testContainer{start: func() { started <- 3 }}
+	if err := pool.Submit(1, 1, 2, replacement, 1); err != nil {
+		t.Fatal(err)
+	}
+	if pool.Get(id) != canceled {
+		t.Fatal("queued cancellation released identity before terminal publication")
+	}
+	once.Do(func() { close(release) })
+	select {
+	case got := <-started:
+		t.Fatalf("canceled or duplicate task started: %d", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+	// Models the terminal publication completing before user Kill callbacks.
+	pool.Remove(id, canceled)
+	if err := pool.Submit(1, 1, 2, replacement, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := receiveTask(t, started); got != 3 {
+		t.Fatalf("want replacement after cancellation, got %d", got)
 	}
 }
