@@ -158,6 +158,8 @@ type MapJobProcessor interface {
 * Process: 每次子任务执行的业务逻辑，第一次进来的是根任务
 * Map: 在根任务中构造taskList，通过map方法可以平均分发给其他worker节点分布式执行
 
+Push 模式下，任务配置 `xattrs.consumerSize` 控制每个任务实例在单个 Worker 上同时执行的任务数，默认值为 5。超出的任务在 Worker 内排队，等待执行的任务仍可被取消；不同任务实例使用各自的并发额度。这个配置不代表跨 Worker 的总并发，也不限制业务代码内部自行启动的 goroutine 或 API 请求速率。
+
 实现接口，参考Demo:
 
 ```go

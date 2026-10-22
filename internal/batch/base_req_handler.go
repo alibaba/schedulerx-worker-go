@@ -56,6 +56,7 @@ type BaseReqHandler struct {
 	defaultSleepMs          time.Duration
 	emptySleepMs            time.Duration
 	latestRequest           interface{}
+	latestRequestLock       sync.RWMutex
 	taskMasterPool          *masterpool.TaskMasterPool
 
 	// onging runnable number, every subclass implement process method should decrement this value when a job was done.
@@ -110,6 +111,8 @@ func (rcvr *BaseReqHandler) Clear() {
 }
 
 func (rcvr *BaseReqHandler) GetLatestRequest() interface{} {
+	rcvr.latestRequestLock.RLock()
+	defer rcvr.latestRequestLock.RUnlock()
 	return rcvr.latestRequest
 }
 
@@ -182,7 +185,9 @@ func (rcvr *BaseReqHandler) Stop() {
 }
 
 func (rcvr *BaseReqHandler) SubmitRequest(request interface{}) {
+	rcvr.latestRequestLock.Lock()
 	rcvr.latestRequest = request
+	rcvr.latestRequestLock.Unlock()
 	rcvr.reqsQueue.SubmitRequest(request)
 }
 

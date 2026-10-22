@@ -20,11 +20,13 @@ import (
 	"math"
 	"runtime/debug"
 	"sync"
+	syncatomic "sync/atomic"
 	"time"
 
 	"github.com/panjf2000/ants/v2"
 	"go.uber.org/atomic"
 
+	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
 )
@@ -55,7 +57,23 @@ func GetThreadContainerPool() *ThreadContainerPool {
 type ThreadContainerPool struct {
 	containerMap       sync.Map // map[string]Container
 	jobInstanceLockMap sync.Map // map[int64]*JobInstanceLock
-	jobCtx             *jobcontext.JobContext
+	jobCtx             syncatomic.Pointer[jobcontext.JobContext]
+	executionMu        sync.Mutex
+	executors          map[int64]*instanceExecutor
+	pending            map[string]*queuedContainer
+}
+
+type instanceExecutor struct {
+	limit     int
+	workers   int
+	queue     []*queuedContainer
+	destroyed bool
+}
+
+type queuedContainer struct {
+	uniqueID  string
+	container Container
+	canceled  bool
 }
 
 func newTreadContainerPool() *ThreadContainerPool {
@@ -69,18 +87,92 @@ func (p *ThreadContainerPool) GetContainerMap() *sync.Map {
 	return &p.containerMap
 }
 
-func (p *ThreadContainerPool) Submit(jobId, jobInstanceId, taskId int64, container Container) (err error) {
-	// in go, it has been simplified into a global pool
-	return globalPool.Submit(container.Start)
+func (p *ThreadContainerPool) Submit(jobId, jobInstanceId, taskId int64, c Container, consumerNum int32) error {
+	if consumerNum <= 0 {
+		return globalPool.Submit(c.Start)
+	}
+	p.executionMu.Lock()
+	defer p.executionMu.Unlock()
+	if p.executors == nil {
+		p.executors = make(map[int64]*instanceExecutor)
+		p.pending = make(map[string]*queuedContainer)
+	}
+	executor := p.executors[jobInstanceId]
+	if executor == nil {
+		executor = &instanceExecutor{limit: int(consumerNum)}
+		p.executors[jobInstanceId] = executor
+	}
+	item := &queuedContainer{uniqueID: utils.GetUniqueId(jobId, jobInstanceId, taskId), container: c}
+	executor.queue = append(executor.queue, item)
+	p.pending[item.uniqueID] = item
+	if executor.workers < executor.limit {
+		executor.workers++
+		if err := globalPool.Submit(func() { p.run(executor) }); err != nil {
+			executor.workers--
+			executor.queue[len(executor.queue)-1] = nil
+			executor.queue = executor.queue[:len(executor.queue)-1]
+			delete(p.pending, item.uniqueID)
+			return err
+		}
+	}
+	return nil
+}
+
+// Queue without blocking the container actor: it must still acknowledge push
+// batches and process kill/destroy messages when all consumers are occupied.
+// Only consumerNum runners per job instance enter Container.Start at a time.
+func (p *ThreadContainerPool) run(executor *instanceExecutor) {
+	for {
+		p.executionMu.Lock()
+		if executor.destroyed || len(executor.queue) == 0 {
+			executor.workers--
+			p.executionMu.Unlock()
+			return
+		}
+		item := executor.queue[0]
+		executor.queue[0] = nil
+		executor.queue = executor.queue[1:]
+		if p.pending[item.uniqueID] == item {
+			delete(p.pending, item.uniqueID)
+		}
+		canceled := item.canceled
+		p.executionMu.Unlock()
+		if !canceled {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Errorf("Catch panic in container %s, %v\n%s", item.uniqueID, r, debug.Stack())
+					}
+				}()
+				item.container.Start()
+			}()
+		}
+	}
 }
 
 func (p *ThreadContainerPool) DestroyByInstance(jobInstanceId int64) bool {
-	// in go, it has been simplified into a global pool and does not need to be destroyed
+	p.executionMu.Lock()
+	defer p.executionMu.Unlock()
+	if executor := p.executors[jobInstanceId]; executor != nil {
+		delete(p.executors, jobInstanceId)
+		executor.destroyed = true
+		for _, item := range executor.queue {
+			item.canceled = true
+			if p.pending[item.uniqueID] == item {
+				delete(p.pending, item.uniqueID)
+				p.containerMap.CompareAndDelete(item.uniqueID, item.container)
+			}
+		}
+		executor.queue = nil
+	}
 	return true
 }
 
 func (p *ThreadContainerPool) Get(uniqueId string) Container {
-	ret, _ := p.containerMap.Load(uniqueId)
+	ret, ok := p.containerMap.Load(uniqueId)
+	if !ok {
+		return nil
+	}
 	return ret.(Container)
 }
 
@@ -93,8 +185,16 @@ func (p *ThreadContainerPool) Contain(uniqueId string) bool {
 	return ok
 }
 
-func (p *ThreadContainerPool) Remove(uniqueId string) {
-	p.containerMap.Delete(uniqueId)
+func (p *ThreadContainerPool) Remove(uniqueId string, expected Container) {
+	p.executionMu.Lock()
+	defer p.executionMu.Unlock()
+	// A delayed completion from an older second-delay cycle must not remove
+	// a replacement container that reuses the same task ID.
+	if item := p.pending[uniqueId]; item != nil && item.container == expected {
+		item.canceled = true
+		delete(p.pending, uniqueId)
+	}
+	p.containerMap.CompareAndDelete(uniqueId, expected)
 }
 
 func (p *ThreadContainerPool) GetInstanceLock(jobInstanceId, serialNum int64) *JobInstanceLock {
@@ -114,13 +214,13 @@ func (p *ThreadContainerPool) ReleaseInstanceLock(jobInstanceId int64) {
 }
 
 func (p *ThreadContainerPool) GetContext() *jobcontext.JobContext {
-	return p.jobCtx
+	return p.jobCtx.Load()
 }
 
 func (p *ThreadContainerPool) SetContext(jobContext *jobcontext.JobContext) {
-	p.jobCtx = jobContext
+	p.jobCtx.Store(jobContext)
 }
 
 func (p *ThreadContainerPool) RemoveContext() {
-	p.jobCtx = nil
+	p.jobCtx.Store(nil)
 }

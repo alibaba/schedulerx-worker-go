@@ -32,6 +32,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/config"
 	"github.com/alibaba/schedulerx-worker-go/internal/batch"
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
+	"github.com/alibaba/schedulerx-worker-go/internal/constants"
 	"github.com/alibaba/schedulerx-worker-go/internal/container"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
@@ -181,8 +182,9 @@ func (a *containerActor) handleKillContainer(actorCtx actor.Context, req *schedu
 
 	if req.GetTaskId() != 0 {
 		// kill task container
-		if a.containerPool.Contain(uniqueId) {
-			a.containerPool.Get(uniqueId).Kill()
+		if c := a.containerPool.Get(uniqueId); c != nil {
+			a.containerPool.Remove(uniqueId, c)
+			c.Kill()
 		}
 		logger.Infof("kill task container success, uniqueId=%v", uniqueId)
 	} else {
@@ -243,19 +245,18 @@ func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req 
 }
 
 func (a *containerActor) killInstance(jobId, jobInstanceId int64) {
-	containerMap := a.containerPool.GetContainerMap()
+	a.containerPool.DestroyByInstance(jobInstanceId)
 	prefixKey := fmt.Sprintf("%d%s%d", jobId, utils.SplitterToken, jobInstanceId)
 	a.containerPool.GetContainerMap().Range(func(key, value any) bool {
 		uniqueId := key.(string)
 		if strings.HasPrefix(uniqueId, prefixKey) {
 			c := value.(container.Container)
 			c.Kill()
-			containerMap.Delete(uniqueId)
+			a.containerPool.Remove(uniqueId, c)
 			a.statusReqBatchHandlerPool.Stop(jobInstanceId)
 		}
 		return true
 	})
-	a.containerPool.DestroyByInstance(jobInstanceId)
 }
 
 func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.MasterStartContainerRequest) (string, error) {
@@ -287,7 +288,16 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 		)
 	}
 
-	if err = a.containerPool.Submit(req.GetJobId(), req.GetJobInstanceId(), req.GetTaskId(), tc); err != nil {
+	var consumerNum int32
+	switch common.ExecuteMode(req.GetExecuteMode()) {
+	case common.ParallelExecuteMode, common.GridExecuteMode, common.BatchExecuteMode:
+		consumerNum = req.GetConsumerNum()
+		if consumerNum <= 0 {
+			consumerNum = constants.DefaultXAttrsConsumerSize
+		}
+	}
+	if err = a.containerPool.Submit(req.GetJobId(), req.GetJobInstanceId(), req.GetTaskId(), tc, consumerNum); err != nil {
+		a.containerPool.Remove(uniqueId, tc)
 		return "", err
 	}
 	return uniqueId, nil

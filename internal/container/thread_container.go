@@ -80,7 +80,7 @@ func (c *ThreadContainer) Start() {
 
 	defer func() {
 		// clean containerPool
-		c.containerPool.Remove(uniqueId)
+		c.containerPool.Remove(uniqueId, c)
 		c.containerPool.RemoveContext()
 
 		if e := recover(); e != nil {
@@ -182,7 +182,7 @@ func (c *ThreadContainer) Kill() {
 	c.actorCtx.Send(c.masterPid, req)
 
 	uniqueId := utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId())
-	c.containerPool.Remove(uniqueId)
+	c.containerPool.Remove(uniqueId, c)
 }
 
 func (c *ThreadContainer) reportTaskStatus(result *processor.ProcessResult, workerAddr string) {

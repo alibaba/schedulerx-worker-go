@@ -36,14 +36,14 @@ type JobInstanceLock struct {
 
 type Pool interface {
 	GetContainerMap() *sync.Map // map[string]Container
-	Submit(jobId int64, jobInstanceId int64, taskId int64, container Container) error
+	Submit(jobId int64, jobInstanceId int64, taskId int64, container Container, consumerNum int32) error
 	DestroyByInstance(jobInstanceId int64) bool
 	GetInstanceLock(jobInstanceId, serialNum int64) *JobInstanceLock
 	ReleaseInstanceLock(jobInstanceId int64)
 	Get(uniqueId string) Container
 	Put(uniqueId string, container Container)
 	Contain(uniqueId string) bool
-	Remove(uniqueId string)
+	Remove(uniqueId string, expected Container)
 	GetContext() *jobcontext.JobContext
 	SetContext(jobContext *jobcontext.JobContext)
 	RemoveContext()
