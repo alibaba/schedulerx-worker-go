@@ -379,6 +379,7 @@ func (m *MapTaskMaster) checkWorkerAlive(ctx context.Context) {
 						JobId:         proto.Int64(m.GetJobInstanceInfo().GetJobId()),
 						WorkerIdAddr:  proto.String(workerAddr),
 						SerialNum:     proto.Int64(m.GetSerialNum()),
+						Attempt:       proto.Int32(m.GetJobInstanceInfo().GetAttempt()),
 					}
 					actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
 						Msg: destroyContainerPoolRequest,
@@ -845,6 +846,8 @@ func (m *MapTaskMaster) KillInstance(reason string) error {
 			JobId:                 proto.Int64(m.GetJobInstanceInfo().GetJobId()),
 			JobInstanceId:         proto.Int64(m.GetJobInstanceInfo().GetJobInstanceId()),
 			MayInterruptIfRunning: proto.Bool(false),
+			SerialNum:             proto.Int64(m.GetSerialNum()),
+			Attempt:               proto.Int32(m.GetJobInstanceInfo().GetAttempt()),
 		}
 		workerAddr := actorcomm.GetRealWorkerAddr(workerIdAddr)
 		m.actorCtx.Send(actorcomm.GetContainerRouterPid(workerAddr), request)
@@ -860,6 +863,7 @@ func (m *MapTaskMaster) DestroyContainerPool() {
 			JobId:         proto.Int64(m.GetJobInstanceInfo().GetJobId()),
 			WorkerIdAddr:  proto.String(workerIdAddr),
 			SerialNum:     proto.Int64(m.GetSerialNum()),
+			Attempt:       proto.Int32(m.GetJobInstanceInfo().GetAttempt()),
 		}
 		actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
 			Msg: request,
@@ -885,6 +889,8 @@ func (m *MapTaskMaster) KillTask(uniqueId string, workerId string, workerAddr st
 		JobId:                 proto.Int64(jobId),
 		TaskId:                proto.Int64(taskId),
 		MayInterruptIfRunning: proto.Bool(false),
+		SerialNum:             proto.Int64(m.GetSerialNum()),
+		Attempt:               proto.Int32(m.GetJobInstanceInfo().GetAttempt()),
 	}
 	m.actorCtx.Send(actorcomm.GetContainerRouterPid(workerAddr), request)
 }

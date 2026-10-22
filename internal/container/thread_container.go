@@ -34,7 +34,6 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/logger"
 	"github.com/alibaba/schedulerx-worker-go/processor"
 	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
-	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 	"github.com/alibaba/schedulerx-worker-go/tracer"
 )
 
@@ -46,6 +45,7 @@ type ThreadContainer struct {
 	jobProcessor  processor.Processor
 	containerPool Pool
 	masterPid     *actor.PID
+	statusHandler *batch.ContainerStatusReqHandler
 }
 
 func NewThreadContainer(jobCtx *jobcontext.JobContext, actorCtx actor.Context) (*ThreadContainer, error) {
@@ -61,11 +61,37 @@ func NewThreadContainer(jobCtx *jobcontext.JobContext, actorCtx actor.Context) (
 	}, nil
 }
 
+// SetStatusHandler binds the execution generation before the container is queued.
+func (c *ThreadContainer) SetStatusHandler(handler *batch.ContainerStatusReqHandler) {
+	c.statusHandler = handler
+}
+
 func (c *ThreadContainer) Run() {
 	c.Start()
 }
 
 func (c *ThreadContainer) Start() {
+	uniqueID := utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId())
+	returned := false
+	defer func() {
+		defer c.containerPool.Remove(uniqueID, c)
+		defer c.containerPool.RemoveContext()
+		if returned {
+			return
+		}
+		// Goexit runs defers but cannot be recovered. Report a terminal task
+		// status as well as letting the pool replace the exited consumer.
+		message := "task goroutine exited before returning"
+		if r := recover(); r != nil {
+			message = fmt.Sprintf("task initialization panic: %v", r)
+		}
+		c.reportTaskStatus(processor.NewProcessResult(processor.WithFailed(), processor.WithResult(message)), c.actorCtx.ActorSystem().Address())
+	}()
+	c.start()
+	returned = true
+}
+
+func (c *ThreadContainer) start() {
 	taskMasterPool := masterpool.GetTaskMasterPool()
 	uniqueId := utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId())
 	c.containerPool.SetContext(c.jobCtx)
@@ -79,10 +105,6 @@ func (c *ThreadContainer) Start() {
 	logger.DebugfCtx(c.jobCtx, "start run container, uniqueId=%v, cost=%vms, jobContext=%+v", uniqueId, startTime-c.jobCtx.ScheduleTime().UnixMilli(), c.jobCtx)
 
 	defer func() {
-		// clean containerPool
-		c.containerPool.Remove(uniqueId, c)
-		c.containerPool.RemoveContext()
-
 		if e := recover(); e != nil {
 			logger.ErrorfCtx(c.jobCtx, "Start run container panic, error=%v, stack=%s", e, debug.Stack())
 			errMsg := fmt.Sprintf("Process task panic, error=%v, stack=%s", e, debug.Stack())
@@ -142,7 +164,7 @@ func (c *ThreadContainer) Start() {
 			taskAttempt++
 			time.Sleep(time.Duration(c.jobCtx.TaskAttemptInterval()) * time.Second)
 			c.jobCtx.SetTaskAttempt(taskAttempt)
-			c.Start()
+			c.start()
 
 			// No need to return the current result status when retrying
 			return
@@ -168,18 +190,7 @@ func (c *ThreadContainer) Kill() {
 		}
 	}
 
-	workerAddr := c.actorCtx.ActorSystem().Address()
-	req := &schedulerx.ContainerReportTaskStatusRequest{
-		JobId:         proto.Int64(c.jobCtx.JobId()),
-		JobInstanceId: proto.Int64(c.jobCtx.JobInstanceId()),
-		TaskId:        proto.Int64(c.jobCtx.TaskId()),
-		TaskName:      proto.String(c.jobCtx.TaskName()),
-		Status:        proto.Int32(int32(taskstatus.TaskStatusFailed)),
-		WorkerId:      proto.String(utils.GetWorkerId()),
-		WorkerAddr:    proto.String(workerAddr),
-		Result:        proto.String("killed"),
-	}
-	c.actorCtx.Send(c.masterPid, req)
+	c.reportTaskStatus(processor.NewProcessResult(processor.WithFailed(), processor.WithResult("killed")), c.actorCtx.ActorSystem().Address())
 
 	uniqueId := utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId())
 	c.containerPool.Remove(uniqueId, c)
@@ -203,6 +214,12 @@ func (c *ThreadContainer) reportTaskStatus(result *processor.ProcessResult, work
 		req.Result = proto.String(result.Result())
 	}
 
+	if c.statusHandler != nil {
+		// A stopped/replaced handler belongs to an old generation; do not fall back
+		// to the new handler or send an unscoped status directly to its master.
+		batch.GetContainerStatusReqHandlerPool().SubmitReqTo(c.jobCtx.JobInstanceId(), c.statusHandler, req)
+		return
+	}
 	submitResult := batch.GetContainerStatusReqHandlerPool().SubmitReq(c.jobCtx.JobInstanceId(), req)
 	logger.DebugfCtx(c.jobCtx, "reportTaskStatus instanceId=%v submitResult=%v, processResult=%v", utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId()), submitResult, result)
 	if !submitResult {

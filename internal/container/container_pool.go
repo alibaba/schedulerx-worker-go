@@ -17,6 +17,7 @@
 package container
 
 import (
+	"container/list"
 	"math"
 	"runtime/debug"
 	"sync"
@@ -24,7 +25,6 @@ import (
 	"time"
 
 	"github.com/panjf2000/ants/v2"
-	"go.uber.org/atomic"
 
 	"github.com/alibaba/schedulerx-worker-go/internal/utils"
 	"github.com/alibaba/schedulerx-worker-go/logger"
@@ -55,31 +55,32 @@ func GetThreadContainerPool() *ThreadContainerPool {
 }
 
 type ThreadContainerPool struct {
-	containerMap       sync.Map // map[string]Container
-	jobInstanceLockMap sync.Map // map[int64]*JobInstanceLock
-	jobCtx             syncatomic.Pointer[jobcontext.JobContext]
-	executionMu        sync.Mutex
-	executors          map[int64]*instanceExecutor
-	pending            map[string]*queuedContainer
+	containerMap sync.Map // map[string]Container
+	jobCtx       syncatomic.Pointer[jobcontext.JobContext]
+	executionMu  sync.Mutex
+	executors    map[int64]*instanceExecutor
+	items        map[string]*queuedContainer
 }
 
 type instanceExecutor struct {
-	limit     int
-	workers   int
-	queue     []*queuedContainer
-	destroyed bool
+	instanceID int64
+	limit      int
+	workers    int
+	queue      list.List
+	items      map[string]*queuedContainer
+	destroyed  bool
 }
 
 type queuedContainer struct {
 	uniqueID  string
 	container Container
-	canceled  bool
+	executor  *instanceExecutor
+	element   *list.Element
 }
 
 func newTreadContainerPool() *ThreadContainerPool {
 	return &ThreadContainerPool{
-		containerMap:       sync.Map{},
-		jobInstanceLockMap: sync.Map{},
+		containerMap: sync.Map{},
 	}
 }
 
@@ -87,67 +88,98 @@ func (p *ThreadContainerPool) GetContainerMap() *sync.Map {
 	return &p.containerMap
 }
 
+// Submit registers and enqueues atomically. Re-delivery while a container is
+// queued or executing must not replace its registry entry or run a second copy.
 func (p *ThreadContainerPool) Submit(jobId, jobInstanceId, taskId int64, c Container, consumerNum int32) error {
-	if consumerNum <= 0 {
-		return globalPool.Submit(c.Start)
-	}
 	p.executionMu.Lock()
 	defer p.executionMu.Unlock()
 	if p.executors == nil {
 		p.executors = make(map[int64]*instanceExecutor)
-		p.pending = make(map[string]*queuedContainer)
+	}
+	if p.items == nil {
+		p.items = make(map[string]*queuedContainer)
+	}
+	uniqueID := utils.GetUniqueId(jobId, jobInstanceId, taskId)
+	if p.items[uniqueID] != nil {
+		return nil
+	}
+	if previous, loaded := p.containerMap.LoadOrStore(uniqueID, c); loaded && previous != c {
+		return nil
 	}
 	executor := p.executors[jobInstanceId]
 	if executor == nil {
-		executor = &instanceExecutor{limit: int(consumerNum)}
+		executor = &instanceExecutor{instanceID: jobInstanceId, limit: int(consumerNum), items: make(map[string]*queuedContainer)}
 		p.executors[jobInstanceId] = executor
 	}
-	item := &queuedContainer{uniqueID: utils.GetUniqueId(jobId, jobInstanceId, taskId), container: c}
-	executor.queue = append(executor.queue, item)
-	p.pending[item.uniqueID] = item
+	item := &queuedContainer{uniqueID: uniqueID, container: c, executor: executor}
+	p.items[uniqueID] = item
+	executor.items[uniqueID] = item
+	if consumerNum <= 0 {
+		if err := globalPool.Submit(func() { p.execute(item, c) }); err != nil {
+			p.removeLocked(uniqueID, c)
+			return err
+		}
+		return nil
+	}
+	item.element = executor.queue.PushBack(item)
 	if executor.workers < executor.limit {
-		executor.workers++
-		if err := globalPool.Submit(func() { p.run(executor) }); err != nil {
-			executor.workers--
-			executor.queue[len(executor.queue)-1] = nil
-			executor.queue = executor.queue[:len(executor.queue)-1]
-			delete(p.pending, item.uniqueID)
+		if err := p.startRunner(executor); err != nil {
+			p.removeLocked(uniqueID, c)
 			return err
 		}
 	}
 	return nil
 }
 
-// Queue without blocking the container actor: it must still acknowledge push
-// batches and process kill/destroy messages when all consumers are occupied.
-// Only consumerNum runners per job instance enter Container.Start at a time.
+// The execution lock is held by callers. Starting a runner never waits for a
+// consumer slot; the actor must remain able to process kill/destroy messages.
+func (p *ThreadContainerPool) startRunner(executor *instanceExecutor) error {
+	executor.workers++
+	if err := globalPool.Submit(func() { p.run(executor) }); err != nil {
+		executor.workers--
+		return err
+	}
+	return nil
+}
+
 func (p *ThreadContainerPool) run(executor *instanceExecutor) {
+	// Goexit runs defers without producing a recoverable panic. Accounting and
+	// replacement must therefore happen here, not only at the normal loop exit.
+	defer func() {
+		p.executionMu.Lock()
+		defer p.executionMu.Unlock()
+		executor.workers--
+		defer p.releaseIdleExecutor(executor)
+		if !executor.destroyed && executor.queue.Len() > 0 && executor.workers < executor.limit {
+			if err := p.startRunner(executor); err != nil {
+				logger.Errorf("restart container consumer: %v", err)
+			}
+		}
+	}()
 	for {
 		p.executionMu.Lock()
-		if executor.destroyed || len(executor.queue) == 0 {
-			executor.workers--
+		element := executor.queue.Front()
+		if executor.destroyed || element == nil {
 			p.executionMu.Unlock()
 			return
 		}
-		item := executor.queue[0]
-		executor.queue[0] = nil
-		executor.queue = executor.queue[1:]
-		if p.pending[item.uniqueID] == item {
-			delete(p.pending, item.uniqueID)
-		}
-		canceled := item.canceled
+		item := element.Value.(*queuedContainer)
+		executor.queue.Remove(element)
+		item.element = nil
+		c := item.container
 		p.executionMu.Unlock()
-		if !canceled {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						logger.Errorf("Catch panic in container %s, %v\n%s", item.uniqueID, r, debug.Stack())
-					}
-				}()
-				item.container.Start()
-			}()
-		}
+		p.execute(item, c)
 	}
+}
+
+func (p *ThreadContainerPool) execute(item *queuedContainer, c Container) {
+	defer p.Remove(item.uniqueID, c)
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("Catch panic in container %s, %v\n%s", item.uniqueID, r, debug.Stack())
+		}
+	}()
+	c.Start()
 }
 
 func (p *ThreadContainerPool) DestroyByInstance(jobInstanceId int64) bool {
@@ -156,14 +188,16 @@ func (p *ThreadContainerPool) DestroyByInstance(jobInstanceId int64) bool {
 	if executor := p.executors[jobInstanceId]; executor != nil {
 		delete(p.executors, jobInstanceId)
 		executor.destroyed = true
-		for _, item := range executor.queue {
-			item.canceled = true
-			if p.pending[item.uniqueID] == item {
-				delete(p.pending, item.uniqueID)
-				p.containerMap.CompareAndDelete(item.uniqueID, item.container)
+		for uniqueID, item := range executor.items {
+			if p.items[uniqueID] == item {
+				p.removeLocked(uniqueID, item.container)
 			}
 		}
-		executor.queue = nil
+		executor.queue.Init()
+		executor.items = nil
+	}
+	if len(p.executors) == 0 {
+		p.executors = nil
 	}
 	return true
 }
@@ -177,7 +211,7 @@ func (p *ThreadContainerPool) Get(uniqueId string) Container {
 }
 
 func (p *ThreadContainerPool) Put(uniqueId string, container Container) {
-	p.containerMap.Store(uniqueId, container)
+	p.containerMap.LoadOrStore(uniqueId, container)
 }
 
 func (p *ThreadContainerPool) Contain(uniqueId string) bool {
@@ -188,29 +222,37 @@ func (p *ThreadContainerPool) Contain(uniqueId string) bool {
 func (p *ThreadContainerPool) Remove(uniqueId string, expected Container) {
 	p.executionMu.Lock()
 	defer p.executionMu.Unlock()
-	// A delayed completion from an older second-delay cycle must not remove
-	// a replacement container that reuses the same task ID.
-	if item := p.pending[uniqueId]; item != nil && item.container == expected {
-		item.canceled = true
-		delete(p.pending, uniqueId)
-	}
-	p.containerMap.CompareAndDelete(uniqueId, expected)
+	p.removeLocked(uniqueId, expected)
 }
 
-func (p *ThreadContainerPool) GetInstanceLock(jobInstanceId, serialNum int64) *JobInstanceLock {
-	lock, loaded := p.jobInstanceLockMap.LoadOrStore(jobInstanceId, &JobInstanceLock{
-		Mutex:     new(sync.Mutex),
-		SerialNum: atomic.NewInt64(serialNum),
-	})
-	jobInstanceLock := lock.(*JobInstanceLock)
-	if loaded && serialNum > 0 {
-		jobInstanceLock.SerialNum.Store(serialNum)
+func (p *ThreadContainerPool) removeLocked(uniqueID string, expected Container) {
+	// Match identity so a late old-cycle completion cannot cancel its replacement.
+	if item := p.items[uniqueID]; item != nil && item.container == expected {
+		if item.element != nil {
+			item.executor.queue.Remove(item.element)
+			item.element = nil
+		}
+		delete(item.executor.items, uniqueID)
+		delete(p.items, uniqueID)
+		item.container = nil
+		p.releaseIdleExecutor(item.executor)
 	}
-	return jobInstanceLock
+	if len(p.items) == 0 {
+		p.items = nil
+	}
+	p.containerMap.CompareAndDelete(uniqueID, expected)
 }
 
-func (p *ThreadContainerPool) ReleaseInstanceLock(jobInstanceId int64) {
-	p.jobInstanceLockMap.Delete(jobInstanceId)
+// Called under executionMu; no execution state or large map buckets need
+// survive an idle instance while waiting for the master's close notification.
+func (p *ThreadContainerPool) releaseIdleExecutor(executor *instanceExecutor) {
+	if executor.workers == 0 && len(executor.items) == 0 && executor.queue.Len() == 0 && p.executors[executor.instanceID] == executor {
+		delete(p.executors, executor.instanceID)
+		executor.items = nil
+		if len(p.executors) == 0 {
+			p.executors = nil
+		}
+	}
 }
 
 func (p *ThreadContainerPool) GetContext() *jobcontext.JobContext {

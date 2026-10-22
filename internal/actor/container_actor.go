@@ -17,12 +17,14 @@
 package actor
 
 import (
+	"container/list"
 	"context"
 	"encoding/json"
 	"fmt"
 	"math"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
@@ -56,10 +58,22 @@ type containerActor struct {
 	statusReqBatchHandlerPool *batch.ContainerStatusReqHandlerPool
 	batchSize                 int32
 	containerStarter          *ants.Pool
+	*containerAdmissionState
+}
+
+type containerAdmissionState struct {
+	admissionMu     sync.Mutex
+	instances       map[int64]*instanceAdmission
+	closedInstances list.List
 }
 
 func newContainerActor() *containerActor {
+	return newContainerActorWithState(new(containerAdmissionState))
+}
+
+func newContainerActorWithState(state *containerAdmissionState) *containerActor {
 	return &containerActor{
+		containerAdmissionState:   state,
 		batchSize:                 config.GetWorkerConfig().WorkerMapPageSize(),
 		statusReqBatchHandlerPool: batch.GetContainerStatusReqHandlerPool(),
 		containerPool:             container.GetThreadContainerPool(),
@@ -111,6 +125,7 @@ func (a *containerActor) handleStartContainer(actorCtx actor.Context, req *sched
 }
 
 func (a *containerActor) handleBatchStartContainers(actorCtx actor.Context, req *schedulerx.MasterBatchStartContainersRequest) {
+	sender := actorCtx.Sender()
 	err := a.containerStarter.Submit(func() {
 		for _, startReq := range req.StartReqs {
 			uniqueId, err := a.startContainer(actorCtx, startReq)
@@ -127,7 +142,7 @@ func (a *containerActor) handleBatchStartContainers(actorCtx actor.Context, req 
 				if startReq.GetTaskName() != "" {
 					reportTaskStatusReq.TaskName = proto.String(startReq.GetTaskName())
 				}
-				if senderPid := actorCtx.Sender(); senderPid != nil {
+				if senderPid := sender; senderPid != nil {
 					actorCtx.Send(senderPid, reportTaskStatusReq)
 				} else {
 					logger.Warnf("Cannot send ContainerReportTaskStatusRequest due to sender is unknown in handleBatchStartContainers of containerActor, request=%+v", req)
@@ -148,7 +163,7 @@ func (a *containerActor) handleBatchStartContainers(actorCtx actor.Context, req 
 			Success: proto.Bool(true),
 		}
 	}
-	if senderPid := actorCtx.Sender(); senderPid != nil {
+	if senderPid := sender; senderPid != nil {
 		actorCtx.Request(senderPid, resp)
 	} else {
 		logger.Warnf("Cannot send MasterBatchStartContainersResponse due to sender is unknown in handleBatchStartContainers of containerActor, request=%+v", req)
@@ -172,97 +187,169 @@ func (a *containerActor) convert2ContainerReportTaskStatusRequest(actorCtx actor
 	}
 }
 
-func (a *containerActor) handleKillContainer(actorCtx actor.Context, req *schedulerx.MasterKillContainerRequest) {
-	var (
-		jobId         = req.GetJobId()
-		jobInstanceId = req.GetJobInstanceId()
-		taskId        = req.GetTaskId()
-		uniqueId      = utils.GetUniqueId(jobId, jobInstanceId, taskId)
-	)
+// A close fence contains only IDs, never containers or task payloads. Do not
+// evict unexpired fences on capacity pressure: reject new admission instead of
+// silently allowing a late message to reopen a closed cycle.
+const (
+	closedInstanceRetention = time.Hour
+	maxInstanceAdmissions   = 65536
+)
 
-	if req.GetTaskId() != 0 {
-		// kill task container
-		if c := a.containerPool.Get(uniqueId); c != nil {
-			a.containerPool.Remove(uniqueId, c)
-			c.Kill()
+type instanceAdmission struct {
+	instanceID int64
+	jobID      int64
+	serial     int64
+	attempt    int32
+	closed     bool
+	expires    time.Time
+	element    *list.Element
+}
+
+func (a *containerActor) pruneClosedInstances(now time.Time) {
+	for element := a.closedInstances.Front(); element != nil; element = a.closedInstances.Front() {
+		state := element.Value.(*instanceAdmission)
+		if now.Before(state.expires) {
+			break
 		}
-		logger.Infof("kill task container success, uniqueId=%v", uniqueId)
-	} else {
-		uniqueId = utils.GetUniqueIdWithoutTaskId(jobId, jobInstanceId)
-		// kill instance container pool
-		a.killInstance(jobId, jobInstanceId)
-		logger.Infof("kill instance success, uniqueId:%v", uniqueId)
+		delete(a.instances, state.instanceID)
+		a.closedInstances.Remove(element)
 	}
-	resp := &schedulerx.MasterKillContainerResponse{
-		Success: proto.Bool(true),
+}
+
+// Optional epoch fields preserve legacy callers. New workers always send both
+// fields, so delayed cleanup from an older retry cannot close a newer attempt.
+func lifecycleEpoch(state *instanceAdmission, jobID int64, serial *int64, attempt *int32) (int64, int32, bool, error) {
+	var targetSerial int64
+	var targetAttempt int32
+	if state != nil {
+		if jobID != 0 && state.jobID != 0 && state.jobID != jobID {
+			return 0, 0, false, fmt.Errorf("container instance belongs to another job")
+		}
+		targetSerial, targetAttempt = state.serial, state.attempt
 	}
-	if senderPid := actorCtx.Sender(); senderPid != nil {
-		actorCtx.Request(senderPid, resp)
-	} else {
-		logger.Warnf("Cannot send MasterKillContainerResponse due to sender is unknown in handleKillContainer of containerActor, request=%+v", req)
+	if attempt != nil {
+		targetAttempt = *attempt
+	}
+	if serial != nil {
+		targetSerial = *serial
+	}
+	stale := state != nil && (targetAttempt < state.attempt || targetAttempt == state.attempt && targetSerial < state.serial)
+	return targetSerial, targetAttempt, stale, nil
+}
+
+func (a *containerActor) closeInstance(instanceID, jobID, serial int64) error {
+	return a.closeInstanceEpoch(instanceID, jobID, &serial, nil)
+}
+
+func (a *containerActor) closeInstanceEpoch(instanceID, jobID int64, serial *int64, attempt *int32) error {
+	now := time.Now()
+	a.pruneClosedInstances(now)
+	if a.instances == nil {
+		a.instances = make(map[int64]*instanceAdmission)
+	}
+	state := a.instances[instanceID]
+	targetSerial, targetAttempt, stale, err := lifecycleEpoch(state, jobID, serial, attempt)
+	if err != nil || stale {
+		return err
+	}
+	if state == nil {
+		if len(a.instances) >= maxInstanceAdmissions {
+			return fmt.Errorf("container instance admission history is full")
+		}
+		state = &instanceAdmission{instanceID: instanceID, jobID: jobID}
+		a.instances[instanceID] = state
+	}
+	if state.closed && targetSerial == state.serial && targetAttempt == state.attempt {
+		return nil
+	}
+	if state.jobID == 0 {
+		state.jobID = jobID
+	}
+	state.serial, state.attempt = targetSerial, targetAttempt
+	if state.element != nil {
+		a.closedInstances.Remove(state.element)
+	}
+	state.closed = true
+	state.expires = now.Add(closedInstanceRetention)
+	state.element = a.closedInstances.PushBack(state)
+	return nil
+}
+
+func (a *containerActor) handleKillContainer(actorCtx actor.Context, req *schedulerx.MasterKillContainerRequest) {
+	jobID, instanceID, taskID := req.GetJobId(), req.GetJobInstanceId(), req.GetTaskId()
+	a.admissionMu.Lock()
+	var toKill []container.Container
+	state := a.instances[instanceID]
+	serial, attempt, stale, err := lifecycleEpoch(state, jobID, req.SerialNum, req.Attempt)
+	if err == nil && !stale {
+		if taskID != 0 {
+			// A task-level kill applies only to the matching execution generation.
+			if state != nil && serial == state.serial && attempt == state.attempt {
+				if jobID == 0 {
+					jobID = state.jobID
+				}
+				uniqueID := utils.GetUniqueId(jobID, instanceID, taskID)
+				if c := a.containerPool.Get(uniqueID); c != nil {
+					a.containerPool.Remove(uniqueID, c)
+					toKill = append(toKill, c)
+				}
+			}
+		} else {
+			err = a.closeInstanceEpoch(instanceID, jobID, req.SerialNum, req.Attempt)
+			if err == nil {
+				if jobID == 0 && state != nil {
+					jobID = state.jobID
+				}
+				// Match the separator too: instance 1001 must not match 10010.
+				prefix := utils.GetUniqueIdWithoutTaskId(jobID, instanceID) + utils.SplitterToken
+				a.containerPool.GetContainerMap().Range(func(key, value any) bool {
+					if strings.HasPrefix(key.(string), prefix) {
+						toKill = append(toKill, value.(container.Container))
+					}
+					return true
+				})
+				a.containerPool.DestroyByInstance(instanceID)
+				a.statusReqBatchHandlerPool.Stop(instanceID)
+			}
+		}
+	}
+	a.admissionMu.Unlock()
+	// User Kill callbacks may block or call back into the SDK. Never run them
+	// under admission/queue locks.
+	for _, c := range toKill {
+		c.Kill()
+	}
+	response := &schedulerx.MasterKillContainerResponse{Success: proto.Bool(err == nil)}
+	if err != nil {
+		response.Message = proto.String(err.Error())
+	}
+	if sender := actorCtx.Sender(); sender != nil {
+		actorCtx.Request(sender, response)
 	}
 }
 
 func (a *containerActor) handleDestroyContainerPool(actorCtx actor.Context, req *schedulerx.MasterDestroyContainerPoolRequest) {
-	logger.Infof("handleDestroyContainerPool from jobInstanceId=%v.", req.GetJobInstanceId())
-
-	jobInstanceLock := a.containerPool.GetInstanceLock(req.GetJobInstanceId(), 0)
-	jobInstanceLock.Lock()
-	defer jobInstanceLock.Unlock()
-	if req.GetSerialNum() > 0 && req.GetSerialNum() != jobInstanceLock.SerialNum.Load() {
-		logger.Infof("skip handleDestroyContainerPool cycleId=%d_%d, lock serialNum=%d.", req.GetJobInstanceId(),
-			req.GetSerialNum(), jobInstanceLock.SerialNum.Load())
-		return
-	}
-
-	handler, ok := a.statusReqBatchHandlerPool.GetHandlers().Load(req.GetJobInstanceId())
-	if ok && req.GetSerialNum() > 0 {
-		if h, ok := handler.(*batch.ContainerStatusReqHandler); ok && h.GetLatestRequest() != nil {
-			r, ok := h.GetLatestRequest().(*schedulerx.ContainerReportTaskStatusRequest)
-			if ok && req.GetSerialNum() != r.GetSerialNum() {
-				logger.Infof("skip handleDestroyContainerPool cycleId=%d_%d, handler serialNum=%d.",
-					req.GetJobInstanceId(), req.GetSerialNum(), r.GetSerialNum())
-				return
-			}
-			logger.Infof("handleDestroyContainerPool from cycleId=%d_%d, handler serialNum=%d.",
-				req.GetJobInstanceId(), req.GetSerialNum(), r.GetSerialNum())
+	a.admissionMu.Lock()
+	_, _, stale, err := lifecycleEpoch(a.instances[req.GetJobInstanceId()], req.GetJobId(), req.SerialNum, req.Attempt)
+	if err == nil && !stale {
+		err = a.closeInstanceEpoch(req.GetJobInstanceId(), req.GetJobId(), req.SerialNum, req.Attempt)
+		if err == nil {
+			a.containerPool.DestroyByInstance(req.GetJobInstanceId())
+			a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
 		}
 	}
-	a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
-	a.containerPool.DestroyByInstance(req.GetJobInstanceId())
-
-	if senderPid := actorCtx.Sender(); senderPid != nil {
-		response := &schedulerx.MasterDestroyContainerPoolResponse{
-			Success:    proto.Bool(true),
-			DeliveryId: proto.Int64(req.GetDeliveryId()),
-		}
-		actorCtx.Send(senderPid, response)
-	} else {
-		logger.Warnf("Cannot send MasterDestroyContainerPoolResponse due to sender is unknown in handleDestroyContainerPool of containerActor, request=%+v", req)
+	a.admissionMu.Unlock()
+	response := &schedulerx.MasterDestroyContainerPoolResponse{Success: proto.Bool(err == nil), DeliveryId: proto.Int64(req.GetDeliveryId())}
+	if err != nil {
+		response.Message = proto.String(err.Error())
 	}
-
-	a.containerPool.ReleaseInstanceLock(req.GetJobInstanceId())
-}
-
-func (a *containerActor) killInstance(jobId, jobInstanceId int64) {
-	a.containerPool.DestroyByInstance(jobInstanceId)
-	prefixKey := fmt.Sprintf("%d%s%d", jobId, utils.SplitterToken, jobInstanceId)
-	a.containerPool.GetContainerMap().Range(func(key, value any) bool {
-		uniqueId := key.(string)
-		if strings.HasPrefix(uniqueId, prefixKey) {
-			c := value.(container.Container)
-			c.Kill()
-			a.containerPool.Remove(uniqueId, c)
-			a.statusReqBatchHandlerPool.Stop(jobInstanceId)
-		}
-		return true
-	})
+	if sender := actorCtx.Sender(); sender != nil {
+		actorCtx.Send(sender, response)
+	}
 }
 
 func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.MasterStartContainerRequest) (string, error) {
-	uniqueId := utils.GetUniqueId(req.GetJobId(), req.GetJobInstanceId(), req.GetTaskId())
-	logger.Debugf("startContainer, uniqueId=%v, req=%+v, cost=%vms", uniqueId, req, time.Now().UnixMilli()-req.GetScheduleTime())
-
+	uniqueID := utils.GetUniqueId(req.GetJobId(), req.GetJobInstanceId(), req.GetTaskId())
 	jobCtx, err := convertMasterStartContainerRequest2JobContext(req)
 	if err != nil {
 		return "", err
@@ -271,23 +358,43 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 	if err != nil {
 		return "", err
 	}
-
-	jobInstanceLock := a.containerPool.GetInstanceLock(req.GetJobInstanceId(), req.GetSerialNum())
-	jobInstanceLock.Lock()
-	defer jobInstanceLock.Unlock()
-
-	a.containerPool.Put(uniqueId, tc)
-	statusReqBatchHandlerKey := req.GetJobInstanceId()
-	if !a.statusReqBatchHandlerPool.Contains(statusReqBatchHandlerKey) {
-		// support 1.5 million requests
-		reqQueue := batch.NewReqQueue(config.GetWorkerConfig().QueueSize())
-		a.statusReqBatchHandlerPool.Start(
-			statusReqBatchHandlerKey,
-			batch.NewContainerStatusReqHandler(statusReqBatchHandlerKey, 1, 1,
-				a.batchSize, reqQueue, req.GetInstanceMasterAkkaPath()),
-		)
+	a.admissionMu.Lock()
+	defer a.admissionMu.Unlock()
+	a.pruneClosedInstances(time.Now())
+	if a.instances == nil {
+		a.instances = make(map[int64]*instanceAdmission)
 	}
-
+	state := a.instances[req.GetJobInstanceId()]
+	if state != nil {
+		if state.jobID != 0 && state.jobID != req.GetJobId() {
+			return "", fmt.Errorf("container instance belongs to another job")
+		}
+		newer := req.GetAttempt() > state.attempt || req.GetAttempt() == state.attempt && req.GetSerialNum() > state.serial
+		if !newer && (state.closed || req.GetAttempt() < state.attempt || req.GetSerialNum() < state.serial) {
+			return uniqueID, nil
+		}
+		if state.jobID == 0 {
+			state.jobID = req.GetJobId()
+		}
+		if newer {
+			if state.element != nil {
+				a.closedInstances.Remove(state.element)
+				state.element = nil
+			}
+			a.containerPool.DestroyByInstance(req.GetJobInstanceId())
+			a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
+			state.serial, state.attempt, state.closed = req.GetSerialNum(), req.GetAttempt(), false
+		}
+	} else {
+		if len(a.instances) >= maxInstanceAdmissions {
+			return "", fmt.Errorf("container instance admission history is full")
+		}
+	}
+	// Only suppress duplicate deliveries that are queued or still executing.
+	// Completion removes the entry, retaining explicit same-cycle task retries.
+	if a.containerPool.Contain(uniqueID) {
+		return uniqueID, nil
+	}
 	var consumerNum int32
 	switch common.ExecuteMode(req.GetExecuteMode()) {
 	case common.ParallelExecuteMode, common.GridExecuteMode, common.BatchExecuteMode:
@@ -296,11 +403,25 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 			consumerNum = constants.DefaultXAttrsConsumerSize
 		}
 	}
-	if err = a.containerPool.Submit(req.GetJobId(), req.GetJobInstanceId(), req.GetTaskId(), tc, consumerNum); err != nil {
-		a.containerPool.Remove(uniqueId, tc)
+	key := req.GetJobInstanceId()
+	handler := a.statusReqBatchHandlerPool.Get(key)
+	created := handler == nil
+	if created {
+		queue := batch.NewReqQueue(config.GetWorkerConfig().QueueSize())
+		handler = batch.NewContainerStatusReqHandler(key, 1, 1, a.batchSize, queue, req.GetInstanceMasterAkkaPath())
+		a.statusReqBatchHandlerPool.Start(key, handler)
+	}
+	tc.SetStatusHandler(handler)
+	if err = a.containerPool.Submit(req.GetJobId(), key, req.GetTaskId(), tc, consumerNum); err != nil {
+		if created {
+			a.statusReqBatchHandlerPool.Stop(key)
+		}
 		return "", err
 	}
-	return uniqueId, nil
+	if state == nil {
+		a.instances[key] = &instanceAdmission{instanceID: key, jobID: req.GetJobId(), serial: req.GetSerialNum(), attempt: req.GetAttempt()}
+	}
+	return uniqueID, nil
 }
 
 func convertMasterStartContainerRequest2JobContext(req *schedulerx.MasterStartContainerRequest) (*jobcontext.JobContext, error) {

@@ -59,6 +59,7 @@ func newPushHarness(t *testing.T) *pushHarness {
 	h := &pushHarness{t: t, processor: &blockingProcessor{started: make(chan int64, 64), release: make(chan struct{})}}
 	tasks.GetTaskMap().Register(t.Name(), h.processor)
 	h.system = actor.NewActorSystem()
+	h.system.ProcessRegistry.Address = "127.0.0.1:12345"
 	h.worker = newContainerActor()
 	h.pid = h.system.Root.Spawn(actor.PropsFromProducer(func() actor.Actor { return h.worker }))
 	t.Cleanup(func() {
