@@ -31,6 +31,7 @@ type Pool interface {
 	GetContainerMap() *sync.Map // map[string]Container
 	Submit(jobId int64, jobInstanceId int64, taskId int64, container Container, consumerNum int32) error
 	DestroyByInstance(jobInstanceId int64) bool
+	IsInstanceActive(jobInstanceId int64) bool
 	Get(uniqueId string) Container
 	Put(uniqueId string, container Container)
 	Contain(uniqueId string) bool

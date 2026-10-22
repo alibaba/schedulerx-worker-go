@@ -56,3 +56,12 @@ func TestStatusSubmissionUnblocksWhenHandlerStops(t *testing.T) {
 		t.Fatal("stopped handler stranded a status submitter")
 	}
 }
+
+func TestEmptyBatchRetrievalDoesNotRetainActivity(t *testing.T) {
+	h := NewContainerStatusReqHandler(1, 1, 1, 10, NewReqQueue(2), "worker")
+	for i := 0; i < 100; i++ {
+		if len(h.AsyncHandleReqs(h)) != 0 || h.IsActive() {
+			t.Fatal("empty retrieval retained active work")
+		}
+	}
+}

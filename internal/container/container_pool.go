@@ -198,12 +198,22 @@ func (p *ThreadContainerPool) execute(item *queuedContainer, c Container) {
 	c.Start()
 }
 
+// Executors remain indexed while queued/reserved work or retired runners exist.
+func (p *ThreadContainerPool) IsInstanceActive(jobInstanceID int64) bool {
+	p.executionMu.Lock()
+	defer p.executionMu.Unlock()
+	return p.executors[jobInstanceID] != nil
+}
+
 func (p *ThreadContainerPool) DestroyByInstance(jobInstanceId int64) bool {
 	p.executionMu.Lock()
 	defer p.executionMu.Unlock()
 	if executor := p.executors[jobInstanceId]; executor != nil {
 		executor.destroyed = true
 		for uniqueID, item := range executor.items {
+			if c, ok := item.container.(*ThreadContainer); ok {
+				c.cancelRetries()
+			}
 			if p.items[uniqueID] == item {
 				p.removeLocked(uniqueID, item.container)
 			}

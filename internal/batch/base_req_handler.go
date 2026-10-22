@@ -85,10 +85,14 @@ func NewBaseReqHandler(jobInstanceId int64, coreBatchThreadNum int, maxBatchThre
 }
 
 func (rcvr *BaseReqHandler) AsyncHandleReqs(h ReqHandler) []interface{} {
+	// Cover the dequeue-to-processing handoff too: idle admission cleanup must
+	// not observe an empty queue before its batch is counted as active.
+	rcvr.activeRunnableNum.Inc()
 	reqs := rcvr.reqsQueue.RetrieveRequests(rcvr.batchSize)
 	if len(reqs) > 0 {
-		rcvr.activeRunnableNum.Inc()
 		h.Process(rcvr.jobInstanceId, reqs, "")
+	} else {
+		rcvr.activeRunnableNum.Dec()
 	}
 	return reqs
 }

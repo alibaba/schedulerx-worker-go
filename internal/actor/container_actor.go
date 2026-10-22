@@ -63,9 +63,9 @@ type containerActor struct {
 }
 
 type containerAdmissionState struct {
-	admissionMu     sync.Mutex
-	instances       map[int64]*instanceAdmission
-	closedInstances list.List
+	admissionMu          sync.Mutex
+	instances            map[int64]*instanceAdmission
+	admissionExpirations list.List
 }
 
 func newContainerActor() *containerActor {
@@ -199,14 +199,33 @@ type instanceAdmission struct {
 	element    *list.Element
 }
 
-func (a *containerActor) pruneClosedInstances(now time.Time) {
-	for element := a.closedInstances.Front(); element != nil; element = a.closedInstances.Front() {
+// Both close fences and inactive open records have a bounded retention.
+// A missed Master Destroy must not permanently consume admission capacity.
+func (a *containerActor) refreshAdmissionExpiry(state *instanceAdmission, now time.Time) {
+	if state.element != nil {
+		a.admissionExpirations.Remove(state.element)
+	}
+	state.expires = now.Add(closedInstanceRetention)
+	state.element = a.admissionExpirations.PushBack(state)
+}
+
+func (a *containerActor) pruneInstanceAdmissions(now time.Time) {
+	for element := a.admissionExpirations.Front(); element != nil; element = a.admissionExpirations.Front() {
 		state := element.Value.(*instanceAdmission)
 		if now.Before(state.expires) {
 			break
 		}
+		if !state.closed {
+			handler := a.statusReqBatchHandlerPool.Get(state.instanceID)
+			if a.containerPool.IsInstanceActive(state.instanceID) || handler != nil && handler.IsActive() {
+				a.refreshAdmissionExpiry(state, now)
+				continue
+			}
+			a.statusReqBatchHandlerPool.Stop(state.instanceID)
+		}
 		delete(a.instances, state.instanceID)
-		a.closedInstances.Remove(element)
+		a.admissionExpirations.Remove(element)
+		state.element = nil
 	}
 }
 
@@ -237,7 +256,7 @@ func (a *containerActor) closeInstance(instanceID, jobID, serial int64) error {
 
 func (a *containerActor) closeInstanceEpoch(instanceID, jobID int64, serial *int64, attempt *int32) error {
 	now := time.Now()
-	a.pruneClosedInstances(now)
+	a.pruneInstanceAdmissions(now)
 	if a.instances == nil {
 		a.instances = make(map[int64]*instanceAdmission)
 	}
@@ -260,12 +279,8 @@ func (a *containerActor) closeInstanceEpoch(instanceID, jobID int64, serial *int
 		state.jobID = jobID
 	}
 	state.serial, state.attempt = targetSerial, targetAttempt
-	if state.element != nil {
-		a.closedInstances.Remove(state.element)
-	}
 	state.closed = true
-	state.expires = now.Add(closedInstanceRetention)
-	state.element = a.closedInstances.PushBack(state)
+	a.refreshAdmissionExpiry(state, now)
 	return nil
 }
 
@@ -354,7 +369,7 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 	}
 	a.admissionMu.Lock()
 	defer a.admissionMu.Unlock()
-	a.pruneClosedInstances(time.Now())
+	a.pruneInstanceAdmissions(time.Now())
 	if a.instances == nil {
 		a.instances = make(map[int64]*instanceAdmission)
 	}
@@ -371,10 +386,8 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 			state.jobID = req.GetJobId()
 		}
 		if newer {
-			if state.element != nil {
-				a.closedInstances.Remove(state.element)
-				state.element = nil
-			}
+			// Keep the prior expiry node until Submit succeeds; a submission
+			// failure must not leave an untracked open admission behind.
 			a.containerPool.DestroyByInstance(req.GetJobInstanceId())
 			a.statusReqBatchHandlerPool.Stop(req.GetJobInstanceId())
 			state.serial, state.attempt, state.closed = req.GetSerialNum(), req.GetAttempt(), false
@@ -413,8 +426,10 @@ func (a *containerActor) startContainer(actorCtx actor.Context, req *schedulerx.
 		return "", err
 	}
 	if state == nil {
-		a.instances[key] = &instanceAdmission{instanceID: key, jobID: req.GetJobId(), serial: req.GetSerialNum(), attempt: req.GetAttempt()}
+		state = &instanceAdmission{instanceID: key, jobID: req.GetJobId(), serial: req.GetSerialNum(), attempt: req.GetAttempt()}
+		a.instances[key] = state
 	}
+	a.refreshAdmissionExpiry(state, time.Now())
 	return uniqueID, nil
 }
 

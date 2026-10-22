@@ -51,6 +51,8 @@ type ThreadContainer struct {
 	killed        atomic.Bool
 	statusMu      sync.Mutex
 	finished      bool
+	retryStop     chan struct{}
+	retryStopOnce sync.Once
 }
 
 func NewThreadContainer(jobCtx *jobcontext.JobContext, actorCtx actor.Context) (*ThreadContainer, error) {
@@ -63,6 +65,7 @@ func NewThreadContainer(jobCtx *jobcontext.JobContext, actorCtx actor.Context) (
 		actorCtx:      actorCtx,
 		containerPool: GetThreadContainerPool(),
 		masterPid:     actorcomm.GetMapMasterPid(workerAddr),
+		retryStop:     make(chan struct{}),
 	}, nil
 }
 
@@ -108,6 +111,9 @@ func (c *ThreadContainer) finish(uniqueID string) {
 }
 
 func (c *ThreadContainer) start() {
+	if c.retryStopped() {
+		return
+	}
 	taskMasterPool := masterpool.GetTaskMasterPool()
 	uniqueId := utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId())
 	c.containerPool.SetContext(c.jobCtx)
@@ -158,7 +164,7 @@ func (c *ThreadContainer) start() {
 		result = tr.End(c.jobCtx, result)
 	}()
 
-	if c.killed.Load() {
+	if c.killed.Load() || c.retryStopped() {
 		return
 	}
 	result, err = task.Process(c.jobCtx)
@@ -184,7 +190,13 @@ func (c *ThreadContainer) start() {
 	if c.jobCtx.MaxAttempt() > 0 && c.jobCtx.TaskId() > 0 && result.Status() == processor.InstanceStatusFailed {
 		if taskAttempt := c.jobCtx.TaskAttempt(); taskAttempt < c.jobCtx.MaxAttempt() {
 			taskAttempt++
-			time.Sleep(time.Duration(c.jobCtx.TaskAttemptInterval()) * time.Second)
+			timer := time.NewTimer(time.Duration(c.jobCtx.TaskAttemptInterval()) * time.Second)
+			select {
+			case <-c.retryStop:
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
 			c.jobCtx.SetTaskAttempt(taskAttempt)
 			c.start()
 
@@ -196,6 +208,25 @@ func (c *ThreadContainer) start() {
 	c.reportTaskStatus(result, workerAddr)
 }
 
+// Retiring a generation stops SDK-owned waits/retries, without invoking user
+// callbacks or pretending that an in-flight Process has already returned.
+func (c *ThreadContainer) cancelRetries() {
+	c.retryStopOnce.Do(func() {
+		if c.retryStop != nil {
+			close(c.retryStop)
+		}
+	})
+}
+
+func (c *ThreadContainer) retryStopped() bool {
+	select {
+	case <-c.retryStop:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *ThreadContainer) cancelExecution() bool {
 	c.statusMu.Lock()
 	defer c.statusMu.Unlock()
@@ -203,6 +234,7 @@ func (c *ThreadContainer) cancelExecution() bool {
 		return false
 	}
 	c.killed.Store(true)
+	c.cancelRetries()
 	c.sendTaskStatus(processor.NewProcessResult(processor.WithFailed(), processor.WithResult("killed")), c.actorCtx.ActorSystem().Address())
 	uniqueID := utils.GetUniqueId(c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId())
 	if !c.containerPool.Cancel(uniqueID, c) {

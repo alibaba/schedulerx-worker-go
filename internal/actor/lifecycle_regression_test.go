@@ -200,8 +200,8 @@ func TestLifecycleAdmissionHistoryIsBoundedAndExpires(t *testing.T) {
 		t.Fatal("history overflow silently evicted live close fences")
 	}
 	h.worker.admissionMu.Lock()
-	h.worker.pruneClosedInstances(time.Now().Add(2 * closedInstanceRetention))
-	remaining, closed := len(h.worker.instances), h.worker.closedInstances.Len()
+	h.worker.pruneInstanceAdmissions(time.Now().Add(2 * closedInstanceRetention))
+	remaining, closed := len(h.worker.instances), h.worker.admissionExpirations.Len()
 	h.worker.admissionMu.Unlock()
 	if remaining != 0 || closed != 0 {
 		t.Fatalf("expired history retained %d instances / %d closed entries", remaining, closed)
