@@ -429,3 +429,31 @@ func TestLifecycleCurrentKillReportsFailureInItsOwnCycle(t *testing.T) {
 		t.Fatalf("current Kill lost its terminal generation status: %v", latest)
 	}
 }
+
+func TestLifecycleStaleDestroyRetainsCurrentHandlerAndQueuedWork(t *testing.T) {
+	h := newPushHarness(t)
+	current := h.request(1, "parallel", proto.Int32(1))
+	current.SerialNum = proto.Int64(8)
+	current.Attempt = proto.Int32(1)
+	h.send(current)
+	h.started()
+	queued := h.request(2, "parallel", proto.Int32(1))
+	queued.SerialNum = proto.Int64(8)
+	queued.Attempt = proto.Int32(1)
+	h.send(queued)
+	handler := h.worker.statusReqBatchHandlerPool.Get(1001)
+	h.send(&schedulerx.MasterDestroyContainerPoolRequest{
+		JobId: proto.Int64(1), JobInstanceId: proto.Int64(1001),
+		SerialNum: proto.Int64(7), Attempt: proto.Int32(0),
+	})
+	if h.worker.statusReqBatchHandlerPool.Get(1001) != handler {
+		t.Fatal("stale Destroy stopped the current generation's status handler")
+	}
+	if !h.worker.containerPool.Contain("1_1001_1") || !h.worker.containerPool.Contain("1_1001_2") {
+		t.Fatal("stale Destroy removed current running/queued task registrations")
+	}
+	h.release()
+	if id := h.started(); id != 2 {
+		t.Fatalf("stale Destroy discarded queued task %d", id)
+	}
+}

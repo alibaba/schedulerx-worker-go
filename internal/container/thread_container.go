@@ -295,7 +295,18 @@ func (c *ThreadContainer) sendTaskStatus(result *processor.ProcessResult, worker
 	if c.statusHandler != nil {
 		// A stopped/replaced handler belongs to an old generation; do not fall back
 		// to the new handler or send an unscoped status directly to its master.
-		batch.GetContainerStatusReqHandlerPool().SubmitReqTo(c.jobCtx.JobInstanceId(), c.statusHandler, req)
+		pool := batch.GetContainerStatusReqHandlerPool()
+		if !pool.SubmitReqTo(c.jobCtx.JobInstanceId(), c.statusHandler, req) {
+			matches := pool.Get(c.jobCtx.JobInstanceId()) == c.statusHandler
+			reason := "handler_retired"
+			if matches {
+				reason = "handler_stopped"
+			}
+			// Retirement is expected during cleanup; keep it visible without
+			// turning normal old-generation status drops into warnings.
+			logger.InfofCtx(c.jobCtx, "drop container task status, jobId=%d jobInstanceId=%d taskId=%d attempt=%d serialNum=%d status=%d reason=%s handlerMatches=%t",
+				c.jobCtx.JobId(), c.jobCtx.JobInstanceId(), c.jobCtx.TaskId(), c.jobCtx.Attempt(), c.jobCtx.SerialNum(), result.Status(), reason, matches)
+		}
 		return
 	}
 	submitResult := batch.GetContainerStatusReqHandlerPool().SubmitReq(c.jobCtx.JobInstanceId(), req)

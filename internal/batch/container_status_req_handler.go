@@ -43,6 +43,14 @@ func (h *ContainerStatusReqHandler) GetTaskMasterAkkaPath() string {
 }
 
 func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []interface{}, workerAddr string) {
+	// The retriever counted this batch before dequeueing. Transfer that count
+	// to the submitted worker, or release it if validation/submission fails.
+	submitted := false
+	defer func() {
+		if !submitted {
+			h.activeRunnableNum.Dec()
+		}
+	}()
 	reqs := make([]*schedulerx.ContainerReportTaskStatusRequest, 0, len(requests))
 	for _, req := range requests {
 		reqs = append(reqs, req.(*schedulerx.ContainerReportTaskStatusRequest))
@@ -53,6 +61,9 @@ func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []inte
 	}
 
 	err := globalPool.Submit(func() {
+		// Keep unsent statuses active during a blocked delivery, but never
+		// retain activity after a panic recovered by the executor.
+		defer h.activeRunnableNum.Dec()
 		taskStatuses := make([]*schedulerx.TaskStatusInfo, 0, len(reqs))
 		// some attrs are duplicated in all reqs, for example: workAddr, workerId, jobId, jobInstanceId, taskMasterPath
 		// get first one used for all reqs.
@@ -88,10 +99,10 @@ func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []inte
 		actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
 			Msg: req,
 		}
-
-		h.activeRunnableNum.Dec()
 	})
 	if err != nil {
 		logger.Errorf("Process ContainerStatusReqHandler failed, submit to batchProcessSvc failed, err=%s", err.Error())
+		return
 	}
+	submitted = true
 }

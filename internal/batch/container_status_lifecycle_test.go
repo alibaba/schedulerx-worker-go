@@ -20,8 +20,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/panjf2000/ants/v2"
 	"google.golang.org/protobuf/proto"
 
+	actorcomm "github.com/alibaba/schedulerx-worker-go/internal/actor/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
 )
 
@@ -63,5 +65,97 @@ func TestEmptyBatchRetrievalDoesNotRetainActivity(t *testing.T) {
 		if len(h.AsyncHandleReqs(h)) != 0 || h.IsActive() {
 			t.Fatal("empty retrieval retained active work")
 		}
+	}
+}
+
+func TestRejectedStatusBatchReleasesActivity(t *testing.T) {
+	pool, err := ants.NewPool(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Release()
+	previous := globalPool
+	globalPool = pool
+	t.Cleanup(func() { globalPool = previous })
+
+	h := NewContainerStatusReqHandler(9201, 1, 1, 10, NewReqQueue(2), "worker")
+	h.SubmitRequest(&schedulerx.ContainerReportTaskStatusRequest{JobInstanceId: proto.Int64(9201)})
+	h.AsyncHandleReqs(h)
+	if h.IsActive() {
+		t.Fatal("rejected status batch permanently retains activity and prevents idle reclamation")
+	}
+}
+
+func TestPanickingStatusBatchReleasesActivity(t *testing.T) {
+	recovered := make(chan struct{})
+	pool, err := ants.NewPool(1, ants.WithPanicHandler(func(interface{}) { close(recovered) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := globalPool
+	globalPool = pool
+	t.Cleanup(func() { globalPool = previous; pool.Release() })
+
+	h := NewContainerStatusReqHandler(9202, 1, 1, 10, NewReqQueue(2), "worker")
+	// A typed nil reaches the real asynchronous encoder and panics there.
+	// Accounting must be released even when the executor recovers that panic.
+	h.SubmitRequest((*schedulerx.ContainerReportTaskStatusRequest)(nil))
+	h.AsyncHandleReqs(h)
+	select {
+	case <-recovered:
+	case <-time.After(time.Second):
+		t.Fatal("asynchronous status encoder did not reach the panic handler")
+	}
+	if h.IsActive() {
+		t.Fatal("panicking status batch permanently retains activity and prevents idle reclamation")
+	}
+}
+
+func TestMalformedStatusBatchReleasesActivity(t *testing.T) {
+	h := NewContainerStatusReqHandler(9203, 1, 1, 10, NewReqQueue(2), "worker")
+	h.SubmitRequest(struct{}{})
+	panicked := false
+	func() {
+		defer func() { panicked = recover() != nil }()
+		h.AsyncHandleReqs(h)
+	}()
+	if !panicked {
+		t.Fatal("malformed status batch must not silently swallow the encoding panic")
+	}
+	if h.IsActive() {
+		t.Fatal("malformed status batch permanently retains activity before executor submission")
+	}
+}
+
+func TestBlockedStatusDeliveryRetainsActivity(t *testing.T) {
+	output := actorcomm.AtLeastOnceDeliveryMsgReceiver()
+	if len(output) != 0 {
+		t.Fatal("status delivery channel was not drained by an earlier test")
+	}
+	for i := 0; i < cap(output); i++ {
+		output <- nil
+	}
+	t.Cleanup(func() {
+		for {
+			select {
+			case <-output:
+			default:
+				return
+			}
+		}
+	})
+	h := NewContainerStatusReqHandler(9204, 1, 1, 10, NewReqQueue(2), "worker")
+	h.SubmitRequest(&schedulerx.ContainerReportTaskStatusRequest{JobInstanceId: proto.Int64(9204)})
+	h.AsyncHandleReqs(h)
+	if !h.IsActive() {
+		t.Fatal("unsent status batch became idle while delivery was blocked")
+	}
+	<-output // Make room for the actual status without discarding it.
+	deadline := time.Now().Add(time.Second)
+	for h.IsActive() {
+		if time.Now().After(deadline) {
+			t.Fatal("delivered status batch did not release activity")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
