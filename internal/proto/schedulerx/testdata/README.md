@@ -10,5 +10,4 @@ worker.proto, using those two original source files and their directory as
 --proto_path. No current descriptor is used as the old-schema oracle.
 
 worker_v1_0_10.pb uses the same command with v1.0.10 sources from upstream
-commit 4d8738440e0327a48b17a95ff73a4ae4934de7e0. This is the SDK version
-currently declared by ndr-scheduler and ndr-scheduler-region.
+commit 4d8738440e0327a48b17a95ff73a4ae4934de7e0.
