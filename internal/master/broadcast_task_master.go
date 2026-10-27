@@ -230,6 +230,7 @@ func (m *BroadcastTaskMaster) DestroyContainerPool() {
 			JobId:         proto.Int64(m.jobInstanceInfo.GetJobId()),
 			WorkerIdAddr:  proto.String(workerIdAddr),
 			SerialNum:     proto.Int64(m.GetSerialNum()),
+			Attempt:       proto.Int32(m.jobInstanceInfo.GetAttempt()),
 		}
 		actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
 			Msg: req,

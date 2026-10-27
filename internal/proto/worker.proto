@@ -91,6 +91,8 @@ message MasterKillContainerRequest {
 	optional string user = 4;
 	required bool mayInterruptIfRunning = 5;
 	optional int64 app_group_id = 6;
+	optional int64 serial_num = 7;
+	optional int32 attempt = 8;
 }
 
 message MasterKillContainerResponse {
@@ -107,6 +109,7 @@ message MasterDestroyContainerPoolRequest {
 	optional int64 delivery_id = 4;
 	optional bool already_unConfirm_retry = 5;
 	optional int64 serial_num = 6;
+	optional int32 attempt = 7;
 }
 
 message MasterDestroyContainerPoolResponse {

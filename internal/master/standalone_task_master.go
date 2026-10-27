@@ -157,6 +157,8 @@ func (m *StandaloneTaskMaster) sendKillContainerRequest() {
 		JobId:                 proto.Int64(m.jobInstanceInfo.GetJobId()),
 		JobInstanceId:         proto.Int64(m.jobInstanceInfo.GetJobInstanceId()),
 		MayInterruptIfRunning: proto.Bool(false),
+		SerialNum:             proto.Int64(m.GetSerialNum()),
+		Attempt:               proto.Int32(m.jobInstanceInfo.GetAttempt()),
 	}
 
 	response, err := m.actorContext.RequestFuture(actorcomm.GetContainerRouterPid(m.currentSelection), req, 10*time.Second).Result()
@@ -178,6 +180,8 @@ func (m *StandaloneTaskMaster) DestroyContainerPool() {
 	req := &schedulerx.MasterDestroyContainerPoolRequest{
 		JobInstanceId: proto.Int64(m.jobInstanceInfo.GetJobInstanceId()),
 		SerialNum:     proto.Int64(m.GetSerialNum()),
+		JobId:         proto.Int64(m.jobInstanceInfo.GetJobId()),
+		Attempt:       proto.Int32(m.jobInstanceInfo.GetAttempt()),
 	}
 
 	if err := m.actorContext.RequestFuture(actorcomm.GetContainerRouterPid(m.currentSelection), req, 5*time.Second).Wait(); err != nil {

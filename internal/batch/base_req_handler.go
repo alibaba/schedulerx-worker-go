@@ -56,6 +56,7 @@ type BaseReqHandler struct {
 	defaultSleepMs          time.Duration
 	emptySleepMs            time.Duration
 	latestRequest           interface{}
+	latestRequestLock       sync.RWMutex
 	taskMasterPool          *masterpool.TaskMasterPool
 
 	// onging runnable number, every subclass implement process method should decrement this value when a job was done.
@@ -84,10 +85,14 @@ func NewBaseReqHandler(jobInstanceId int64, coreBatchThreadNum int, maxBatchThre
 }
 
 func (rcvr *BaseReqHandler) AsyncHandleReqs(h ReqHandler) []interface{} {
+	// Cover the dequeue-to-processing handoff too: idle admission cleanup must
+	// not observe an empty queue before its batch is counted as active.
+	rcvr.activeRunnableNum.Inc()
 	reqs := rcvr.reqsQueue.RetrieveRequests(rcvr.batchSize)
 	if len(reqs) > 0 {
-		rcvr.activeRunnableNum.Inc()
 		h.Process(rcvr.jobInstanceId, reqs, "")
+	} else {
+		rcvr.activeRunnableNum.Dec()
 	}
 	return reqs
 }
@@ -110,6 +115,8 @@ func (rcvr *BaseReqHandler) Clear() {
 }
 
 func (rcvr *BaseReqHandler) GetLatestRequest() interface{} {
+	rcvr.latestRequestLock.RLock()
+	defer rcvr.latestRequestLock.RUnlock()
 	return rcvr.latestRequest
 }
 
@@ -182,7 +189,9 @@ func (rcvr *BaseReqHandler) Stop() {
 }
 
 func (rcvr *BaseReqHandler) SubmitRequest(request interface{}) {
+	rcvr.latestRequestLock.Lock()
 	rcvr.latestRequest = request
+	rcvr.latestRequestLock.Unlock()
 	rcvr.reqsQueue.SubmitRequest(request)
 }
 
