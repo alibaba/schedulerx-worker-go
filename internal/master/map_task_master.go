@@ -80,6 +80,8 @@ type MapTaskMaster struct {
 	once                sync.Once
 	cycleCtx            context.Context
 	cycleCancel         context.CancelFunc
+	statusWriteMu       sync.RWMutex
+	statusWritesRetired bool
 }
 
 func NewMapTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) taskmaster.TaskMaster {
@@ -541,7 +543,11 @@ func (m *MapTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.ContainerR
 	}
 	for i := 0; i < 3; i++ {
 		// try 3 times
-		if err := m.taskPersistence.UpdateTaskStatues(allTaskStatus); err != nil {
+		err, written := m.persistTaskStatuses(allTaskStatus)
+		if !written {
+			return
+		}
+		if err != nil {
 			logger.Errorf("jobInstanceId=%d, persistent batch updateTaskStatus error, err=%s", m.jobInstanceInfo.GetJobInstanceId(), err.Error())
 			continue
 		}
@@ -586,8 +592,11 @@ func (m *MapTaskMaster) machineOverload() bool {
 }
 
 func (m *MapTaskMaster) clearTasks(jobInstanceId int64) {
-	m.taskPersistence.ClearTasks(jobInstanceId)
-	logger.Infof("jobInstanceId=%d clearTasks success.", jobInstanceId)
+	if err, cleared := m.clearPersistedTasks(jobInstanceId); err != nil {
+		logger.Errorf("jobInstanceId=%d clearTasks failed: %v", jobInstanceId, err)
+	} else if cleared {
+		logger.Infof("jobInstanceId=%d clearTasks success.", jobInstanceId)
+	}
 }
 
 func (m *MapTaskMaster) createRootTask() error {
@@ -1028,7 +1037,36 @@ func (m *MapTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult
 	return reduceResult
 }
 
+// RetireStatusWrites fences future status I/O and joins any write already in
+// progress before the pool can expose a replacement using the same task rows.
+func (m *MapTaskMaster) RetireStatusWrites() {
+	m.statusWriteMu.Lock()
+	m.statusWritesRetired = true
+	m.statusWriteMu.Unlock()
+}
+
+func (m *MapTaskMaster) persistTaskStatuses(requests []*schedulerx.ContainerReportTaskStatusRequest) (error, bool) {
+	m.statusWriteMu.RLock()
+	defer m.statusWriteMu.RUnlock()
+	if m.statusWritesRetired {
+		return nil, false
+	}
+	return m.taskPersistence.UpdateTaskStatues(requests), true
+}
+
+func (m *MapTaskMaster) clearPersistedTasks(jobInstanceID int64) (error, bool) {
+	// Clear may start the next second-job cycle on the same Master. Serialize
+	// its I/O with status writes without permanently retiring that owner.
+	m.statusWriteMu.Lock()
+	defer m.statusWriteMu.Unlock()
+	if m.statusWritesRetired {
+		return nil, false
+	}
+	return m.taskPersistence.ClearTasks(jobInstanceID), true
+}
+
 func (m *MapTaskMaster) Stop() {
+	m.RetireStatusWrites()
 	if m.taskDispatchReqHandler != nil {
 		m.taskDispatchReqHandler.Stop()
 	}

@@ -95,7 +95,8 @@ func (m *GridTaskMaster) Map(jobCtx *jobcontext.JobContext, taskList [][]byte, t
 
 func (m *GridTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
 	postResult := m.MapTaskMaster.PostFinish(jobInstanceId)
-	if err := m.taskPersistence.ClearTasks(jobInstanceId); err != nil {
+	// Do not hold the persistence gate across user PostFinish/reduce callbacks.
+	if err, _ := m.clearPersistedTasks(jobInstanceId); err != nil {
 		logger.Errorf("Clear tasks failed in PostFinish, err=%s", err.Error())
 	}
 	return postResult

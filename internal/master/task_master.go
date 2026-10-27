@@ -89,6 +89,12 @@ func (m *TaskMaster) GetActorContext() actor.Context {
 	return m.actorContext
 }
 
+// StatusOwner identifies the shared lifecycle beneath Grid/Batch/Map wrappers.
+// Status handlers may retain an inner Master while the pool stores its wrapper.
+func (m *TaskMaster) StatusOwner() taskmaster.TaskMaster {
+	return m
+}
+
 func (m *TaskMaster) GetLocalWorkerIdAddr() string {
 	return m.localWorkIdAddr
 }

@@ -208,7 +208,7 @@ func (m *ShardingTaskMaster) CheckProcessor() {
 }
 
 func (m *ShardingTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
-	if err := m.taskPersistence.ClearTasks(jobInstanceId); err != nil {
+	if err, _ := m.clearPersistedTasks(jobInstanceId); err != nil {
 		return nil
 	}
 	return processor.NewProcessResult(processor.WithSucceed())
