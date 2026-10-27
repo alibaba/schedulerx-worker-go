@@ -3044,6 +3044,7 @@ type ContainerReportTaskStatusRequest struct {
 	SerialNum               *int64                 `protobuf:"varint,11,opt,name=serial_num,json=serialNum" json:"serial_num,omitempty"`
 	Progress                *string                `protobuf:"bytes,12,opt,name=progress" json:"progress,omitempty"`
 	TraceId                 *string                `protobuf:"bytes,13,opt,name=traceId" json:"traceId,omitempty"`
+	Attempt                 *int32                 `protobuf:"varint,14,opt,name=attempt" json:"attempt,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -3169,6 +3170,13 @@ func (x *ContainerReportTaskStatusRequest) GetTraceId() string {
 	return ""
 }
 
+func (x *ContainerReportTaskStatusRequest) GetAttempt() int32 {
+	if x != nil && x.Attempt != nil {
+		return *x.Attempt
+	}
+	return 0
+}
+
 type ContainerReportTaskStatusResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Success       *bool                  `protobuf:"varint,1,req,name=success" json:"success,omitempty"`
@@ -3238,6 +3246,7 @@ type ContainerBatchReportTaskStatuesRequest struct {
 	AlreadyUnConfirmRetry *bool                  `protobuf:"varint,8,opt,name=already_unConfirm_retry,json=alreadyUnConfirmRetry" json:"already_unConfirm_retry,omitempty"`
 	SerialNum             *int64                 `protobuf:"varint,9,opt,name=serial_num,json=serialNum" json:"serial_num,omitempty"`
 	MetricsJson           *string                `protobuf:"bytes,10,opt,name=metrics_json,json=metricsJson" json:"metrics_json,omitempty"`
+	Attempt               *int32                 `protobuf:"varint,11,opt,name=attempt" json:"attempt,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -3340,6 +3349,13 @@ func (x *ContainerBatchReportTaskStatuesRequest) GetMetricsJson() string {
 		return *x.MetricsJson
 	}
 	return ""
+}
+
+func (x *ContainerBatchReportTaskStatuesRequest) GetAttempt() int32 {
+	if x != nil && x.Attempt != nil {
+		return *x.Attempt
+	}
+	return 0
 }
 
 type TaskStatusInfo struct {
@@ -4227,7 +4243,7 @@ const file_worker_proto_rawDesc = "" +
 	"$WorkerQueryJobInstanceStatusResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x02(\bR\asuccess\x12\x1a\n" +
 	"\amessage\x18\x02 \x01(\t:\x00R\amessage\x12\x16\n" +
-	"\x06status\x18\x03 \x02(\x05R\x06status\"\xb3\x03\n" +
+	"\x06status\x18\x03 \x02(\x05R\x06status\"\xcd\x03\n" +
 	" ContainerReportTaskStatusRequest\x12\x15\n" +
 	"\x06job_id\x18\x01 \x02(\x03R\x05jobId\x12&\n" +
 	"\x0fjob_instance_id\x18\x02 \x02(\x03R\rjobInstanceId\x12\x17\n" +
@@ -4244,10 +4260,11 @@ const file_worker_proto_rawDesc = "" +
 	"\n" +
 	"serial_num\x18\v \x01(\x03R\tserialNum\x12\x1a\n" +
 	"\bprogress\x18\f \x01(\tR\bprogress\x12\x18\n" +
-	"\atraceId\x18\r \x01(\tR\atraceId\"Y\n" +
+	"\atraceId\x18\r \x01(\tR\atraceId\x12\x18\n" +
+	"\aattempt\x18\x0e \x01(\x05R\aattempt\"Y\n" +
 	"!ContainerReportTaskStatusResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x02(\bR\asuccess\x12\x1a\n" +
-	"\amessage\x18\x02 \x01(\t:\x00R\amessage\"\xc8\x03\n" +
+	"\amessage\x18\x02 \x01(\t:\x00R\amessage\"\xe2\x03\n" +
 	"&ContainerBatchReportTaskStatuesRequest\x12\x15\n" +
 	"\x06job_id\x18\x01 \x02(\x03R\x05jobId\x12&\n" +
 	"\x0fjob_instance_id\x18\x02 \x02(\x03R\rjobInstanceId\x12S\n" +
@@ -4262,7 +4279,8 @@ const file_worker_proto_rawDesc = "" +
 	"\n" +
 	"serial_num\x18\t \x01(\x03R\tserialNum\x12!\n" +
 	"\fmetrics_json\x18\n" +
-	" \x01(\tR\vmetricsJson\"\xac\x01\n" +
+	" \x01(\tR\vmetricsJson\x12\x18\n" +
+	"\aattempt\x18\v \x01(\x05R\aattempt\"\xac\x01\n" +
 	"\x0eTaskStatusInfo\x12\x17\n" +
 	"\atask_id\x18\x01 \x02(\x03R\x06taskId\x12\x16\n" +
 	"\x06status\x18\x02 \x02(\x05R\x06status\x12\x16\n" +

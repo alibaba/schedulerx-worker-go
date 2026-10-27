@@ -118,7 +118,21 @@ func (m *TaskMaster) IsJobInstanceFinished() bool {
 	return isFinished
 }
 
+// Missing metadata retains legacy behavior. Explicit zero is an attempt, not
+// an absent field; new peers must match the current instance before any update.
+func (m *TaskMaster) acceptsStatusAttempt(attempt *int32) bool {
+	if attempt == nil || *attempt == m.jobInstanceInfo.GetAttempt() {
+		return true
+	}
+	logger.Infof("ignore task status from another attempt, jobId=%d jobInstanceId=%d currentAttempt=%d reportedAttempt=%d",
+		m.jobInstanceInfo.GetJobId(), m.jobInstanceInfo.GetJobInstanceId(), m.jobInstanceInfo.GetAttempt(), *attempt)
+	return false
+}
+
 func (m *TaskMaster) UpdateTaskStatus(req *schedulerx.ContainerReportTaskStatusRequest) error {
+	if !m.acceptsStatusAttempt(req.Attempt) {
+		return nil
+	}
 	var (
 		jobId         = req.GetJobId()
 		jobInstanceId = req.GetJobInstanceId()
@@ -170,6 +184,9 @@ func (m *TaskMaster) updateNewInstanceStatus(serialNum int64, jobInstanceId int6
 // BatchUpdateTaskStatus
 // TODO: MapTaskMaster may override this method do really batch process
 func (m *TaskMaster) BatchUpdateTaskStatus(taskMaster taskmaster.TaskMaster, req *schedulerx.ContainerBatchReportTaskStatuesRequest) error {
+	if !m.acceptsStatusAttempt(req.Attempt) {
+		return nil
+	}
 	for _, status := range req.GetTaskStatues() {
 		containerReportTaskStatusReq := &schedulerx.ContainerReportTaskStatusRequest{
 			JobId:         proto.Int64(req.GetJobId()),
@@ -178,6 +195,7 @@ func (m *TaskMaster) BatchUpdateTaskStatus(taskMaster taskmaster.TaskMaster, req
 			WorkerAddr:    proto.String(req.GetWorkerAddr()),
 			WorkerId:      proto.String(req.GetWorkerId()),
 			Status:        proto.Int32(status.GetStatus()),
+			Attempt:       req.Attempt,
 		}
 
 		if result := status.GetResult(); result != "" {

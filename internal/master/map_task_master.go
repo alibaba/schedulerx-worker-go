@@ -452,13 +452,23 @@ func (m *MapTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceInfo) 
 }
 
 func (m *MapTaskMaster) UpdateTaskStatus(request *schedulerx.ContainerReportTaskStatusRequest) error {
+	if !m.acceptsStatusAttempt(request.Attempt) {
+		return nil
+	}
 	m.taskStatusReqQueue.SubmitRequest(request)
 	return nil
 }
 
 func (m *MapTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.ContainerReportTaskStatusRequest) {
 	finalTaskStatus := make(map[int64]*schedulerx.ContainerReportTaskStatusRequest)
+	var latestAccepted *schedulerx.ContainerReportTaskStatusRequest
 	for _, request := range requests {
+		// An old TMStatusReqHandler can resolve a replacement Master at flush
+		// time, so validate again before progress, result or persistence updates.
+		if !m.acceptsStatusAttempt(request.Attempt) {
+			continue
+		}
+		latestAccepted = request
 		taskStatus := taskstatus.TaskStatus(request.GetStatus())
 
 		// Filter intermediate states
@@ -513,13 +523,15 @@ func (m *MapTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.ContainerR
 		m.taskStatusMap.Store(request.GetTaskId(), taskStatus)
 	}
 
+	if latestAccepted == nil {
+		return
+	}
 	startTime := time.Now()
 
 	// Return the reason for the failure of the root task node.
 	// It is possible to return two root task requests at the same time, which are running and failed statuses, take the last one.
-	idx := len(requests) - 1
-	if idx >= 0 && requests[idx].GetStatus() == int32(taskstatus.TaskStatusFailed) && requests[idx].GetTaskName() == constants.MapTaskRootName {
-		m.SetRootTaskResult(requests[idx].GetResult())
+	if latestAccepted.GetStatus() == int32(taskstatus.TaskStatusFailed) && latestAccepted.GetTaskName() == constants.MapTaskRootName {
+		m.SetRootTaskResult(latestAccepted.GetResult())
 	}
 
 	updateSuccess := false
@@ -675,6 +687,7 @@ func (m *MapTaskMaster) batchUpdateTaskStatus(workerId, workerAddr string, reqs 
 			val.(*common.WorkerProgressCounter).IncrementOneFailed()
 		}
 		failedStatusRequest := &schedulerx.ContainerReportTaskStatusRequest{
+			Attempt:       proto.Int32(m.GetJobInstanceInfo().GetAttempt()),
 			JobId:         proto.Int64(m.GetJobInstanceInfo().GetJobId()),
 			JobInstanceId: proto.Int64(m.GetJobInstanceInfo().GetJobInstanceId()),
 			TaskId:        proto.Int64(req.GetTaskId()),

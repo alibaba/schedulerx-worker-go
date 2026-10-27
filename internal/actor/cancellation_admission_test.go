@@ -127,6 +127,7 @@ func TestAdmissionRejectionBatchReachesMaster(t *testing.T) {
 	req := h.request(1, "parallel", proto.Int32(1))
 	req.JobInstanceId = proto.Int64(rejectedID)
 	req.SerialNum = proto.Int64(7)
+	req.Attempt = proto.Int32(3)
 	// Admission is deliberately paused so the ordinary batch ACK wins the race.
 	// Its async body resumes after the RequestFuture has already ended.
 	response, err := h.system.Root.RequestFuture(h.pid, &schedulerx.MasterBatchStartContainersRequest{JobId: proto.Int64(1), JobInstanceId: proto.Int64(rejectedID), StartReqs: []*schedulerx.MasterStartContainerRequest{req}}, time.Second).Result()
@@ -151,7 +152,7 @@ func TestAdmissionRejectionBatchReachesMaster(t *testing.T) {
 	}
 	select {
 	case failure := <-delivered:
-		if failure.GetSerialNum() != 7 || !strings.Contains(failure.GetResult(), "admission history") || failure.GetStatus() != int32(processor.InstanceStatusFailed) {
+		if failure.Attempt == nil || failure.GetAttempt() != 3 || failure.GetSerialNum() != 7 || !strings.Contains(failure.GetResult(), "admission history") || failure.GetStatus() != int32(processor.InstanceStatusFailed) {
 			t.Fatalf("incomplete failure metadata: %v", failure)
 		}
 	case failure := <-lost:

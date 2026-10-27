@@ -125,6 +125,9 @@ func (m *ShardingTaskMaster) parseShardingParameters(jobInstanceInfo *common.Job
 func (m *ShardingTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.ContainerReportTaskStatusRequest) {
 	m.GridTaskMaster.BatchUpdateTaskStatues(requests)
 	for _, req := range requests {
+		if !m.acceptsStatusAttempt(req.Attempt) {
+			continue
+		}
 		var (
 			taskId     = req.GetTaskId()
 			taskStatus = req.GetStatus()
