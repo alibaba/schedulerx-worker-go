@@ -18,6 +18,7 @@ package utils
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -28,7 +29,7 @@ var (
 
 type healthTimeHolder struct {
 	// latestServerHeartbeatTime is the last successful heartbeat detection time of the server
-	latestServerHeartbeatTime int64
+	latestServerHeartbeatTime atomic.Int64
 }
 
 func GetHealthTimeHolder() *healthTimeHolder {
@@ -39,22 +40,22 @@ func GetHealthTimeHolder() *healthTimeHolder {
 }
 
 func newHealthTimeHolder() *healthTimeHolder {
-	return &healthTimeHolder{
-		latestServerHeartbeatTime: time.Now().UnixMilli(),
-	}
+	h := new(healthTimeHolder)
+	h.ResetServerHeartbeatTime()
+	return h
 }
 
 // ResetServerHeartbeatTime reset the last heartbeat detection with server success time
 func (h *healthTimeHolder) ResetServerHeartbeatTime() {
-	h.latestServerHeartbeatTime = time.Now().UnixMilli()
+	h.latestServerHeartbeatTime.Store(time.Now().UnixMilli())
 }
 
 // GetServerHeartbeatMsInterval is the interval between the last successful heartbeat detection on the server and now
 func (h *healthTimeHolder) GetServerHeartbeatMsInterval() int64 {
-	return time.Now().UnixMilli() - h.latestServerHeartbeatTime
+	return time.Now().UnixMilli() - h.latestServerHeartbeatTime.Load()
 }
 
 // IsServerHeartbeatHealthTimeout check if the time since the last successful heartbeat detection of the server is greater than the given interval time
 func (h *healthTimeHolder) IsServerHeartbeatHealthTimeout(seconds int64) bool {
-	return (time.Now().UnixMilli() - h.latestServerHeartbeatTime) > seconds*1000
+	return (time.Now().UnixMilli() - h.latestServerHeartbeatTime.Load()) > seconds*1000
 }
