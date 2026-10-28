@@ -153,8 +153,8 @@ func (m *ShardingTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.Conta
 func (m *ShardingTaskMaster) BatchHandlePulledProgress(masterStartContainerRequests []*schedulerx.MasterStartContainerRequest,
 	remoteWorker string) (map[string][]*schedulerx.MasterStartContainerRequest, map[string][]*schedulerx.MasterStartContainerRequest) {
 	serial := m.GetSerialNum()
-	m.statusWriteMu.RLock()
-	defer m.statusWriteMu.RUnlock()
+	m.statusWriteMu.Lock()
+	defer m.statusWriteMu.Unlock()
 	var (
 		worker2ReqsWithNormal   = make(map[string][]*schedulerx.MasterStartContainerRequest)
 		worker2ReqsWithFailover = make(map[string][]*schedulerx.MasterStartContainerRequest)
@@ -168,9 +168,9 @@ func (m *ShardingTaskMaster) BatchHandlePulledProgress(masterStartContainerReque
 			workerIdAddr = m.selectWorker()
 		}
 		if workerIdAddr == "" {
-			m.statusWriteMu.RUnlock()
+			m.statusWriteMu.Unlock()
 			m.updateNewInstanceStatus(serial, m.GetJobInstanceInfo().GetJobInstanceId(), processor.InstanceStatusFailed, "all worker is down!")
-			m.statusWriteMu.RLock()
+			m.statusWriteMu.Lock()
 			break
 		}
 

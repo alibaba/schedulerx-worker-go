@@ -56,6 +56,8 @@ type SecondJobUpdateInstanceStatusHandler struct {
 	stopCh                chan struct{}
 	stopOnce              sync.Once
 	progressMu            sync.Mutex
+	finalizedSerial       int64
+	hasFinalizedSerial    bool
 }
 
 func NewSecondJobUpdateInstanceStatusHandler(actorCtx actor.Context, taskMaster taskmaster.TaskMaster, jobInstanceInfo *common.JobInstanceInfo) *SecondJobUpdateInstanceStatusHandler {
@@ -305,8 +307,30 @@ func (h *SecondJobUpdateInstanceStatusHandler) triggerNextCycle(cycleId string, 
 	}
 	h.progressMu.Lock()
 	cycleStart := h.cycleStartTime
+	claimed := false
+	claim := func() {
+		if h.hasFinalizedSerial && h.finalizedSerial == serialNum {
+			return
+		}
+		h.hasFinalizedSerial, h.finalizedSerial, claimed = true, serialNum, true
+	}
+	if fenced, ok := h.taskMaster.(interface{ withCycleState(int64, func()) bool }); ok {
+		fenced.withCycleState(serialNum, claim)
+	} else {
+		claim()
+	}
 	h.progressMu.Unlock()
-	postResult := h.taskMaster.PostFinish(h.jobInstanceInfo.GetJobInstanceId())
+	if !claimed {
+		return
+	}
+	var postResult *processor.ProcessResult
+	if fenced, ok := h.taskMaster.(interface {
+		postFinishAtCycle(int64, int64) *processor.ProcessResult
+	}); ok {
+		postResult = fenced.postFinishAtCycle(h.jobInstanceInfo.GetJobInstanceId(), serialNum)
+	} else {
+		postResult = h.taskMaster.PostFinish(h.jobInstanceInfo.GetJobInstanceId())
+	}
 	if !h.currentCycle(serialNum) {
 		return
 	}

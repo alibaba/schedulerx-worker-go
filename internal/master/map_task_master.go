@@ -762,7 +762,11 @@ func (m *MapTaskMaster) batchHandleContainers(workerIdAddr string, reqs []*sched
 					m.GetJobInstanceInfo().GetJobInstanceId(), workerIdAddr, len(reqs))
 
 				// TODO: worker挂了，先移除该worker，再尝试发给另一个worker，这里暂时去掉，探活交给专门的线程去干这里不做判断;
-				m.GetJobInstanceInfo().SetAllWorkers(utils.RemoveSliceElem(m.GetJobInstanceInfo().GetAllWorkers(), workerIdAddr))
+				if !m.withCycleState(serial, func() {
+					m.GetJobInstanceInfo().SetAllWorkers(utils.RemoveSliceElem(m.GetJobInstanceInfo().GetAllWorkers(), workerIdAddr))
+				}) {
+					return
+				}
 
 				// Send timeout, fallback to init status
 				var taskIds []int64
@@ -884,8 +888,8 @@ func (m *MapTaskMaster) batchHandleRunningProgress(masterStartContainerRequests 
 func (m *MapTaskMaster) BatchHandlePulledProgress(masterStartContainerRequests []*schedulerx.MasterStartContainerRequest,
 	remoteWorker string) (map[string][]*schedulerx.MasterStartContainerRequest, map[string][]*schedulerx.MasterStartContainerRequest) {
 	serial := m.GetSerialNum()
-	m.statusWriteMu.RLock()
-	defer m.statusWriteMu.RUnlock()
+	m.statusWriteMu.Lock()
+	defer m.statusWriteMu.Unlock()
 	var (
 		worker2ReqsWithNormal   = make(map[string][]*schedulerx.MasterStartContainerRequest)
 		worker2ReqsWithFailover = make(map[string][]*schedulerx.MasterStartContainerRequest)
@@ -899,12 +903,12 @@ func (m *MapTaskMaster) BatchHandlePulledProgress(masterStartContainerRequests [
 			workerIdAddr = m.selectWorker()
 		}
 		if workerIdAddr == "" {
-			m.statusWriteMu.RUnlock()
+			m.statusWriteMu.Unlock()
 			if err := m.updateNewInstanceStatus(serial, m.GetJobInstanceInfo().GetJobInstanceId(),
 				processor.InstanceStatusFailed, "all worker is down!"); err != nil {
 				logger.Errorf("updateNewInstanceStatus failed in BatchHandlePulledProgress, err=%s", err.Error())
 			}
-			m.statusWriteMu.RLock()
+			m.statusWriteMu.Lock()
 			break
 		}
 
@@ -1362,7 +1366,7 @@ func (m *MapTaskMaster) clearCycle(taskMaster taskmaster.TaskMaster, serial int6
 	m.cycleTransitionMu.Lock()
 	defer m.cycleTransitionMu.Unlock()
 	// Cancel before joining local sends; transitions serialize the serial check.
-	if serial != m.GetSerialNum() || m.retirementStarted() {
+	if serial != m.GetSerialNum() || m.retirementStarted() || m.cycleClosed {
 		return false
 	}
 	// cycleCancel is written only under cycleTransitionMu. Do not acquire a

@@ -17,6 +17,7 @@
 package common
 
 import (
+	"sync"
 	"time"
 )
 
@@ -48,6 +49,7 @@ type JobInstanceInfo struct {
 	parameters     string
 	xattrs         string
 	allWorkers     []string
+	workersMu      sync.RWMutex
 	jobConcurrency int32
 	maxAttempt     int32
 	attempt        int32
@@ -184,7 +186,9 @@ func NewJobInstanceInfo() *JobInstanceInfo {
 }
 
 func (j *JobInstanceInfo) SetAllWorkers(allWorkers []string) {
-	j.allWorkers = allWorkers
+	j.workersMu.Lock()
+	defer j.workersMu.Unlock()
+	j.allWorkers = append([]string(nil), allWorkers...)
 }
 
 func (j *JobInstanceInfo) GetJobId() int64 {
@@ -276,7 +280,9 @@ func (j *JobInstanceInfo) GetXattrs() string {
 }
 
 func (j *JobInstanceInfo) GetAllWorkers() []string {
-	return j.allWorkers
+	j.workersMu.RLock()
+	defer j.workersMu.RUnlock()
+	return append([]string(nil), j.allWorkers...)
 }
 
 func (j *JobInstanceInfo) GetJobConcurrency() int32 {
