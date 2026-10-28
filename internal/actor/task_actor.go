@@ -185,13 +185,14 @@ func (a *taskActor) handleMapTask(actorCtx actor.Context, req *schedulerx.Worker
 		response      = new(schedulerx.WorkerMapTaskResponse)
 	)
 	if taskMaster := a.taskMasterPool.Get(jobInstanceId); taskMaster != nil {
+		serial := taskMaster.GetSerialNum()
 		if mapTaskMaster, ok := taskMaster.(taskmaster.MapTaskMaster); ok {
 			startTime := time.Now().UnixMilli()
 			overload, err := mapTaskMaster.Map(nil, req.GetTaskBody(), req.GetTaskName())
 			if err != nil {
 				errMsg := fmt.Sprintf("handleMapTask failed, due to jobInstanceId=%v map error, err=%v", jobInstanceId, err.Error())
 				logger.Errorf(errMsg)
-				taskMaster.UpdateNewInstanceStatus(taskMaster.GetSerialNum(), processor.InstanceStatusFailed, errMsg)
+				taskMaster.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, errMsg)
 				return fmt.Errorf(errMsg)
 			}
 			logger.Debugf("jobInstanceId=%v map, cost=%vms", jobInstanceId, time.Now().UnixMilli()-startTime)
@@ -204,7 +205,7 @@ func (a *taskActor) handleMapTask(actorCtx actor.Context, req *schedulerx.Worker
 				Success: proto.Bool(false),
 				Message: proto.String("TaskMaster is not MapTaskMaster"),
 			}
-			taskMaster.UpdateNewInstanceStatus(taskMaster.GetSerialNum(), processor.InstanceStatusFailed, "TaskMaster is not MapTaskMaster")
+			taskMaster.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, "TaskMaster is not MapTaskMaster")
 		}
 	} else {
 		response = &schedulerx.WorkerMapTaskResponse{
@@ -225,12 +226,15 @@ func (a *taskActor) handlePullTasks(actorCtx actor.Context, req *schedulerx.Pull
 	var (
 		jobInstanceId = req.GetJobInstanceId()
 		response      = new(schedulerx.PullTaskFromMasterResponse)
+		replyOwner    taskmaster.MapTaskMaster
+		replySerial   int64
 	)
 	if taskMaster := a.taskMasterPool.Get(jobInstanceId); taskMaster != nil {
 		if mapTaskMaster, ok := taskMaster.(taskmaster.MapTaskMaster); ok {
+			replyOwner, replySerial = mapTaskMaster, mapTaskMaster.GetSerialNum()
 			response = &schedulerx.PullTaskFromMasterResponse{
 				Success: proto.Bool(true),
-				Request: mapTaskMaster.SyncPullTasks(req.GetPageSize(), req.GetWorkerIdAddr()),
+				Request: mapTaskMaster.SyncPullTasks(req.GetPageSize(), req.GetWorkerIdAddr(), replySerial),
 			}
 		} else {
 			response = &schedulerx.PullTaskFromMasterResponse{
@@ -245,7 +249,14 @@ func (a *taskActor) handlePullTasks(actorCtx actor.Context, req *schedulerx.Pull
 		}
 	}
 	if senderPid := actorCtx.Sender(); senderPid != nil {
-		actorCtx.Send(senderPid, response)
+		if replyOwner != nil {
+			if !replyOwner.WithCycleHandoff(replySerial, func() { actorCtx.Send(senderPid, response) }) {
+				// Complete the obsolete RPC without handing any retired task to Worker.
+				actorCtx.Send(senderPid, &schedulerx.PullTaskFromMasterResponse{Success: proto.Bool(false), Message: proto.String("task master cycle is inactive")})
+			}
+		} else {
+			actorCtx.Send(senderPid, response)
+		}
 	} else {
 		logger.Warnf("Cannot send PullTaskFromMasterResponse due to sender is unknown in handlePullTasks of taskActor, request=%+v", req)
 	}

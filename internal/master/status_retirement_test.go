@@ -88,6 +88,7 @@ func TestMasterRetirementDrainsInflightSQLiteStatus(t *testing.T) {
 			handler := batch.NewTMStatusReqHandler(id, 1, 1, 4, queue)
 			oldMap := &MapTaskMaster{TaskMaster: oldBase, taskPersistence: blocked, taskStatusReqBatchHandler: handler}
 			old := &GridTaskMaster{MapTaskMaster: oldMap}
+			handler.BindTaskMaster(old)
 			currentBase, _ := attemptTestMaster(1)
 			current := &GridTaskMaster{MapTaskMaster: &MapTaskMaster{TaskMaster: currentBase, taskPersistence: db}}
 			pool := masterpool.GetTaskMasterPool()

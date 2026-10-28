@@ -31,6 +31,7 @@ type ReqHandler interface {
 }
 
 type TaskDispatchReqHandler interface {
+	SyncHandleReqsWithAdmission(h ReqHandler, pageSize int32, workerIDAddr string, admit func(func()) bool) []interface{}
 	ReqHandler
 	SetDispatchSize(dispatchSize int)
 }

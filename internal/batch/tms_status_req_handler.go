@@ -19,9 +19,7 @@ package batch
 import (
 	"time"
 
-	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
-	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
 var _ ReqHandler = (*TMStatusReqHandler)(nil)
@@ -39,21 +37,12 @@ func NewTMStatusReqHandler(jobInstanceId int64, coreBatchThreadNum int, maxBatch
 }
 
 func (rcvr *TMStatusReqHandler) Process(jobInstanceId int64, reqs []interface{}, workerIdAddr string) {
-	statusReqs := make([]*schedulerx.ContainerReportTaskStatusRequest, 0, len(reqs))
+	defer rcvr.activeRunnableNum.Dec()
+	requests := make([]*schedulerx.ContainerReportTaskStatusRequest, 0, len(reqs))
 	for _, req := range reqs {
-		statusReqs = append(statusReqs, req.(*schedulerx.ContainerReportTaskStatusRequest))
+		requests = append(requests, req.(*schedulerx.ContainerReportTaskStatusRequest))
 	}
-	if taskMaster := rcvr.taskMasterPool.Get(jobInstanceId); taskMaster != nil {
-		if mapTaskMaster, ok := taskMaster.(taskmaster.MapTaskMaster); ok {
-			startTime := time.Now()
-			mapTaskMaster.BatchUpdateTaskStatues(statusReqs)
-			logger.Debugf("MapTaskMaster BatchUpdateTaskStatues succeed, jobInstanceId=%d, cost:%dms, size:%d", jobInstanceId, time.Since(startTime).Milliseconds(), len(statusReqs))
-		} else {
-			logger.Warnf("TaskMaster get from taskMasterPool is empty, jobInstanceId:%d", jobInstanceId)
-		}
-	} else {
-		logger.Warnf("TaskMaster get from taskMasterPool is not MapTaskMaster, jobInstanceId:%d", jobInstanceId)
+	if rcvr.owner != nil {
+		rcvr.owner.BatchUpdateTaskStatues(requests)
 	}
-
-	rcvr.activeRunnableNum.Dec()
 }

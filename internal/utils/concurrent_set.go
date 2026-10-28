@@ -52,7 +52,7 @@ func (s *ConcurrentSet[T]) Keys() []T {
 }
 
 func (s *ConcurrentSet[T]) Clear() {
-	s.m = sync.Map{}
+	s.m.Range(func(key, _ any) bool { s.m.Delete(key); return true })
 }
 
 func (s *ConcurrentSet[T]) Len() int {
