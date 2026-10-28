@@ -102,10 +102,13 @@ func (m *GridTaskMaster) Map(jobCtx *jobcontext.JobContext, taskList [][]byte, t
 }
 
 func (m *GridTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
-	serial := m.GetSerialNum()
-	postResult := m.postFinish(jobInstanceId, serial)
+	return m.postFinishAtCycle(jobInstanceId, m.GetSerialNum())
+}
+
+func (m *GridTaskMaster) postFinishAtCycle(jobInstanceID, serial int64) *processor.ProcessResult {
+	postResult := m.postFinish(jobInstanceID, serial)
 	// Do not hold the persistence gate across user PostFinish/reduce callbacks.
-	if err, _ := m.clearPersistedTasks(jobInstanceId, serial); err != nil {
+	if err, _ := m.clearPersistedTasks(jobInstanceID, serial); err != nil {
 		logger.Errorf("Clear tasks failed in PostFinish, err=%s", err.Error())
 	}
 	return postResult

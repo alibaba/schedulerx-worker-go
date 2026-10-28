@@ -22,6 +22,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
 	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
+	"time"
 )
 
 // withTaskPersistence joins the entire local persistence operation, including
@@ -47,11 +48,11 @@ func (m *MapTaskMaster) cycleActive(serial int64) bool {
 	return !m.retirementStarted() && !m.statusWritesRetired && !m.cycleClosed && serial == m.GetSerialNum()
 }
 
-func (m *MapTaskMaster) pullPersistedTasks(serial, id int64, size int32) (tasks []*common.TaskInfo, err error, admitted bool) {
+func (m *MapTaskMaster) pullPersistedTasks(serial, id int64, size int32) (tasks []*common.TaskInfo, admitted bool, err error) {
 	admitted = m.withTaskPersistence(serial, func() { tasks, err = m.taskPersistence.Pull(id, size) })
 	return
 }
-func (m *MapTaskMaster) updatePersistedTasks(serial, id int64, ids []int64, status taskstatus.TaskStatus, worker, addr string) (count int64, err error, admitted bool) {
+func (m *MapTaskMaster) updatePersistedTasks(serial, id int64, ids []int64, status taskstatus.TaskStatus, worker, addr string) (count int64, admitted bool, err error) {
 	admitted = m.withTaskPersistence(serial, func() { count, err = m.taskPersistence.UpdateTaskStatus(id, ids, status, worker, addr) })
 	return
 }
@@ -120,22 +121,35 @@ func (m *MapTaskMaster) retirementStarted() bool {
 // Only the enqueue is joined. Never wait for a remote response or run a user
 // hook here. A closed cycle may send its deliberate container cleanup.
 func (m *MapTaskMaster) sendCycleMessage(serial int64, target chan interface{}, msg interface{}, allowClosed bool) bool {
-	m.statusWriteMu.RLock()
-	defer m.statusWriteMu.RUnlock()
-	if m.retirementStarted() || m.statusWritesRetired || serial != m.GetSerialNum() || (m.cycleClosed && !allowClosed) {
-		return false
-	}
-	var done <-chan struct{}
-	if !allowClosed && m.cycleCtx != nil {
-		done = m.cycleCtx.Done()
-	}
-	select {
-	case <-m.retireCh:
-		return false
-	case <-done:
-		return false
-	case target <- msg:
-		return true
+	for {
+		m.statusWriteMu.RLock()
+		if m.retirementStarted() || m.statusWritesRetired || serial != m.GetSerialNum() || (m.cycleClosed && !allowClosed) {
+			m.statusWriteMu.RUnlock()
+			return false
+		}
+		var done <-chan struct{}
+		if !allowClosed && m.cycleCtx != nil {
+			done = m.cycleCtx.Done()
+		}
+		// Join the non-waiting enqueue only. Backpressure must not pin a read
+		// lock while a lifecycle writer needs to cancel or advance the cycle.
+		select {
+		case target <- msg:
+			m.statusWriteMu.RUnlock()
+			return true
+		default:
+			m.statusWriteMu.RUnlock()
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-m.retireCh:
+			timer.Stop()
+			return false
+		case <-done:
+			timer.Stop()
+			return false
+		case <-timer.C:
+		}
 	}
 }
 
@@ -149,4 +163,16 @@ func (m *MapTaskMaster) mapContextAtReceipt(ctx *jobcontext.JobContext) *jobcont
 	ctx.SetSerialNum(m.GetSerialNum())
 	ctx.SetAttempt(m.jobInstanceInfo.GetAttempt())
 	return ctx
+}
+
+// Owner-level control also applies between second-job cycles. It joins only
+// local state changes or non-waiting actor sends, never callbacks/responses.
+func (m *MapTaskMaster) withCycleControl(serial int64, operation func()) bool {
+	m.statusWriteMu.RLock()
+	defer m.statusWriteMu.RUnlock()
+	if m.retirementStarted() || m.statusWritesRetired || serial != m.GetSerialNum() {
+		return false
+	}
+	operation()
+	return true
 }

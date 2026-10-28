@@ -190,7 +190,7 @@ func (m *MapTaskMaster) pullTask(ctx context.Context, jobIdAndInstanceId string,
 		}
 		jobInstanceId := m.GetJobInstanceInfo().GetJobInstanceId()
 		startTime := time.Now()
-		taskInfos, err, admitted := m.pullPersistedTasks(serial, jobInstanceId, m.pageSize)
+		taskInfos, admitted, err := m.pullPersistedTasks(serial, jobInstanceId, m.pageSize)
 		if !admitted || !m.cycleActive(serial) {
 			return
 		}
@@ -770,7 +770,7 @@ func (m *MapTaskMaster) batchHandleContainers(workerIdAddr string, reqs []*sched
 					taskIds = append(taskIds, req.GetTaskId())
 				}
 
-				affectCnt, err, admitted := m.updatePersistedTasks(serial, m.GetJobInstanceInfo().GetJobInstanceId(), taskIds, taskstatus.TaskStatusInit, workerId, workerAddr)
+				affectCnt, admitted, err := m.updatePersistedTasks(serial, m.GetJobInstanceInfo().GetJobInstanceId(), taskIds, taskstatus.TaskStatusInit, workerId, workerAddr)
 				if !admitted {
 					return
 				}
@@ -982,7 +982,10 @@ func (m *MapTaskMaster) selectWorker() string {
 }
 
 func (m *MapTaskMaster) KillInstance(reason string) error {
-	_ = m.TaskMaster.KillInstance(reason)
+	serial := m.GetSerialNum()
+	if !m.withCycleControl(serial, func() { _ = m.TaskMaster.KillInstance(reason) }) {
+		return nil
+	}
 
 	allWorkers := m.GetJobInstanceInfo().GetAllWorkers()
 	for _, workerIdAddr := range allWorkers {
@@ -990,13 +993,15 @@ func (m *MapTaskMaster) KillInstance(reason string) error {
 			JobId:                 proto.Int64(m.GetJobInstanceInfo().GetJobId()),
 			JobInstanceId:         proto.Int64(m.GetJobInstanceInfo().GetJobInstanceId()),
 			MayInterruptIfRunning: proto.Bool(false),
-			SerialNum:             proto.Int64(m.GetSerialNum()),
+			SerialNum:             proto.Int64(serial),
 			Attempt:               proto.Int32(m.GetJobInstanceInfo().GetAttempt()),
 		}
 		workerAddr := actorcomm.GetRealWorkerAddr(workerIdAddr)
-		m.actorCtx.Send(actorcomm.GetContainerRouterPid(workerAddr), request)
+		if !m.withCycleControl(serial, func() { m.actorCtx.Send(actorcomm.GetContainerRouterPid(workerAddr), request) }) {
+			return nil
+		}
 	}
-	return m.updateNewInstanceStatus(m.GetSerialNum(), m.GetJobInstanceInfo().GetJobInstanceId(), processor.InstanceStatusFailed, reason)
+	return m.updateNewInstanceStatus(serial, m.GetJobInstanceInfo().GetJobInstanceId(), processor.InstanceStatusFailed, reason)
 }
 
 func (m *MapTaskMaster) DestroyContainerPool() {
@@ -1021,6 +1026,7 @@ func (m *MapTaskMaster) destroyCycleContainers(serial int64) {
 
 func (m *MapTaskMaster) KillTask(uniqueId string, workerId string, workerAddr string) {
 	var (
+		serial       = m.GetSerialNum()
 		workerIdAddr = fmt.Sprintf("%v%v%v", workerId, "@", workerAddr)
 
 		jobInstanceId, err1 = utils.ParseId(uniqueId, utils.IdTypeJobInstanceId)
@@ -1037,10 +1043,10 @@ func (m *MapTaskMaster) KillTask(uniqueId string, workerId string, workerAddr st
 		JobId:                 proto.Int64(jobId),
 		TaskId:                proto.Int64(taskId),
 		MayInterruptIfRunning: proto.Bool(false),
-		SerialNum:             proto.Int64(m.GetSerialNum()),
+		SerialNum:             proto.Int64(serial),
 		Attempt:               proto.Int32(m.GetJobInstanceInfo().GetAttempt()),
 	}
-	m.actorCtx.Send(actorcomm.GetContainerRouterPid(workerAddr), request)
+	m.withCycleControl(serial, func() { m.actorCtx.Send(actorcomm.GetContainerRouterPid(workerAddr), request) })
 }
 
 func (m *MapTaskMaster) GetJobInstanceProgress() (string, error) {
@@ -1080,17 +1086,21 @@ func (m *MapTaskMaster) CheckProcessor() {
 }
 
 func (m *MapTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
-	return m.postFinish(jobInstanceId, m.GetSerialNum())
+	return m.postFinishAtCycle(jobInstanceId, m.GetSerialNum())
 }
 
-func (m *MapTaskMaster) postFinish(jobInstanceId, serial int64) *processor.ProcessResult {
+func (m *MapTaskMaster) postFinishAtCycle(jobInstanceID, serial int64) *processor.ProcessResult {
+	return m.postFinish(jobInstanceID, serial)
+}
+
+func (m *MapTaskMaster) postFinish(jobInstanceID, serial int64) *processor.ProcessResult {
 	jobCtx := new(jobcontext.JobContext)
 	var jobProcessor interface{}
 	var found bool
 	if !m.withCycleState(serial, func() {
 		info := m.GetJobInstanceInfo()
 		jobCtx.SetJobId(info.GetJobId())
-		jobCtx.SetJobInstanceId(jobInstanceId)
+		jobCtx.SetJobInstanceId(jobInstanceID)
 		jobCtx.SetJobType(info.GetJobType())
 		jobCtx.SetContent(info.GetContent())
 		jobCtx.SetScheduleTime(info.GetScheduleTime())
@@ -1327,24 +1337,21 @@ func (m *MapTaskMaster) initTaskProgress(taskName string, delta int) {
 
 func (m *MapTaskMaster) SyncPullTasks(pageSize int32, workerIdAddr string) []*schedulerx.MasterStartContainerRequest {
 	serial := m.GetSerialNum()
+	reqs := m.taskDispatchReqHandler.SyncHandleReqsWithAdmission(m.taskDispatchReqHandler, pageSize, workerIdAddr, func(take func()) bool {
+		return m.withCycleState(serial, func() {
+			if m.getTotalPulledAndRunning() < int64(m.xAttrs.GetGlobalConsumerSize()) {
+				take()
+			}
+		})
+	})
 	if !m.cycleActive(serial) {
 		return nil
 	}
-	if m.getTotalPulledAndRunning() >= int64(m.xAttrs.GetGlobalConsumerSize()) {
-		return nil
-	} else {
-		if reqs := m.taskDispatchReqHandler.SyncHandleReqs(m.taskDispatchReqHandler, pageSize, workerIdAddr); reqs != nil {
-			ret := make([]*schedulerx.MasterStartContainerRequest, 0, len(reqs))
-			for _, req := range reqs {
-				ret = append(ret, req.(*schedulerx.MasterStartContainerRequest))
-			}
-			if !m.cycleActive(serial) {
-				return nil
-			}
-			return m.filterDispatchRequests(ret)
-		}
-		return nil
+	ret := make([]*schedulerx.MasterStartContainerRequest, 0, len(reqs))
+	for _, req := range reqs {
+		ret = append(ret, req.(*schedulerx.MasterStartContainerRequest))
 	}
+	return m.filterDispatchRequests(ret)
 }
 
 func (m *MapTaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
@@ -1358,9 +1365,10 @@ func (m *MapTaskMaster) clearCycle(taskMaster taskmaster.TaskMaster, serial int6
 	if serial != m.GetSerialNum() || m.retirementStarted() {
 		return false
 	}
-	m.statusWriteMu.RLock()
+	// cycleCancel is written only under cycleTransitionMu. Do not acquire a
+	// read lock here: a pending writer may itself be waiting for the sender
+	// which this cancellation must release.
 	cancel := m.cycleCancel
-	m.statusWriteMu.RUnlock()
 	if cancel != nil {
 		cancel()
 	}

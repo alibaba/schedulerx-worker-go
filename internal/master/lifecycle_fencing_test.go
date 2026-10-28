@@ -551,16 +551,7 @@ func TestLifecycleCancelsBlockedLocalHandoff(t *testing.T) {
 			m.jobInstanceInfo.SetAllWorkers(nil)
 			sent := make(chan bool, 1)
 			go func() { sent <- m.sendCycleMessage(0, make(chan interface{}), "blocked", false) }()
-			deadline := time.After(time.Second)
-			for m.statusWriteMu.TryLock() {
-				m.statusWriteMu.Unlock()
-				select {
-				case <-deadline:
-					t.Fatal("send did not enter gate")
-				default:
-					runtime.Gosched()
-				}
-			}
+			r4WaitStack(t, "(*MapTaskMaster).sendCycleMessage")
 			done := make(chan struct{})
 			go func() {
 				defer close(done)

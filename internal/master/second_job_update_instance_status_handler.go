@@ -55,6 +55,7 @@ type SecondJobUpdateInstanceStatusHandler struct {
 	recentProgressHistory *utils.LimitedQueue
 	stopCh                chan struct{}
 	stopOnce              sync.Once
+	progressMu            sync.Mutex
 }
 
 func NewSecondJobUpdateInstanceStatusHandler(actorCtx actor.Context, taskMaster taskmaster.TaskMaster, jobInstanceInfo *common.JobInstanceInfo) *SecondJobUpdateInstanceStatusHandler {
@@ -103,27 +104,42 @@ func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 				logger.Errorf("report status failed due to getJobInstanceProgress failed, err=%v, jobIdAndInstanceId=%s.", err, jobIdAndInstanceId)
 				continue
 			}
+			h.progressMu.Lock()
+			triggerTimes, triggerCus := h.triggerTimes, h.triggerCus
+			h.progressMu.Unlock()
 			req := &schedulerx.WorkerReportJobInstanceProgressRequest{
 				JobId:         proto.Int64(h.jobInstanceInfo.GetJobId()),
 				JobInstanceId: proto.Int64(h.jobInstanceInfo.GetJobInstanceId()),
 				Progress:      proto.String(progress),
-				TriggerTimes:  proto.Int32(h.triggerTimes),
+				TriggerTimes:  proto.Int32(triggerTimes),
 			}
 
+			delivered := true
 			// FIXME ServerDiscovery serverDiscovery = ServerDiscoveryFactory.GetDiscovery(jobInstanceInfo.GetGroupId());
 			if fenced, ok := h.taskMaster.(interface {
 				sendCycleMessage(int64, chan interface{}, interface{}, bool) bool
 			}); ok {
-				if !fenced.sendCycleMessage(serial, actorcomm.TaskMasterMsgReceiver(), &actorcomm.SchedulerWrappedMsg{Msg: req}, false) {
-					continue
+				delivered = fenced.sendCycleMessage(serial, actorcomm.TaskMasterMsgReceiver(), &actorcomm.SchedulerWrappedMsg{Msg: req}, true)
+				if !delivered {
+					// The reporter spans idle delays and cycle changes. Health checks below
+					// must still run when a concurrent transition rejects this snapshot.
+					select {
+					case <-h.stopCh:
+						return
+					default:
+					}
 				}
 			} else {
 				actorcomm.TaskMasterMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{Msg: req}
 			}
 
 			intervalTimes = 0
-			h.triggerTimes = 0
-			h.triggerCus = 0
+			if delivered {
+				h.progressMu.Lock()
+				h.triggerTimes -= triggerTimes
+				h.triggerCus -= triggerCus
+				h.progressMu.Unlock()
+			}
 		}
 
 		if err := h.need2KillSelf(); err != nil {
@@ -167,6 +183,8 @@ func (h *SecondJobUpdateInstanceStatusHandler) getJobInstanceProgress() (string,
 	if err != nil {
 		return "", err
 	}
+	h.progressMu.Lock()
+	defer h.progressMu.Unlock()
 	h.secondProgressDetail.SetRunningProgress(progress)
 	h.secondProgressDetail.SetRunningStartTime(h.cycleStartTime)
 	h.secondProgressDetail.SetRecentProgressHistory(h.recentProgressHistory.ArrayList())
@@ -229,9 +247,6 @@ func (h *SecondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 	if h.taskMaster.IsKilled() && (strings.Contains(result, "killed") ||
 		strings.Contains(result, "Worker master shutdown")) {
 		h.taskMaster.SetInstanceStatus(processor.InstanceStatusFailed)
-		h.taskMaster.Stop()
-		h.stop()
-		h.masterPool.RemoveIfOwner(h.jobInstanceInfo.GetJobInstanceId(), h.taskMaster)
 
 		if result != "killed from server" {
 			// 对服务端强制停止操作不做状态反馈
@@ -248,12 +263,28 @@ func (h *SecondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 			if progress != "" {
 				req.Progress = proto.String(progress)
 			}
-			actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
-				Msg: req,
+			if fenced, ok := h.taskMaster.(interface {
+				sendCycleMessage(int64, chan interface{}, interface{}, bool) bool
+			}); ok {
+				if !fenced.sendCycleMessage(serialNum, actorcomm.AtLeastOnceDeliveryMsgReceiver(), &actorcomm.SchedulerWrappedMsg{Msg: req}, true) {
+					return nil
+				}
+			} else {
+				actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{Msg: req}
 			}
 
 			logger.Infof("report cycleId=%s, status=%d to AtLeastDeliveryRoutingActor", cycleId, instanceStatus)
 		}
+
+		if fenced, ok := h.taskMaster.(interface{ stopCycle(int64) bool }); ok {
+			if !fenced.stopCycle(serialNum) {
+				return nil
+			}
+		} else {
+			h.taskMaster.Stop()
+		}
+		h.stop()
+		h.masterPool.RemoveIfOwner(h.jobInstanceInfo.GetJobInstanceId(), h.taskMaster)
 
 		// 如果实例终止无需进行后续操作
 		return nil
@@ -272,7 +303,9 @@ func (h *SecondJobUpdateInstanceStatusHandler) triggerNextCycle(cycleId string, 
 			cycleId, h.taskMaster.GetSerialNum(), serialNum, instanceStatus, h.taskMaster.IsKilled())
 		return
 	}
+	h.progressMu.Lock()
 	cycleStart := h.cycleStartTime
+	h.progressMu.Unlock()
 	postResult := h.taskMaster.PostFinish(h.jobInstanceInfo.GetJobInstanceId())
 	if !h.currentCycle(serialNum) {
 		return
@@ -316,8 +349,11 @@ func (h *SecondJobUpdateInstanceStatusHandler) triggerNextCycle(cycleId string, 
 		if !h.enableCycleIntervalMs {
 			delayTime = 1000 * delayTime
 		}
-		h.cycleStartTime = time.Now().UnixMilli() + int64(delayTime)
-		planEntry := NewTimePlanEntry(h.jobInstanceInfo.GetJobInstanceId(), h.cycleStartTime, h)
+		nextStart := time.Now().UnixMilli() + int64(delayTime)
+		h.progressMu.Lock()
+		h.cycleStartTime = nextStart
+		h.progressMu.Unlock()
+		planEntry := NewTimePlanEntry(h.jobInstanceInfo.GetJobInstanceId(), nextStart, h)
 		GetTimeScheduler().add(planEntry)
 	} else {
 		h.taskMaster.AcquireSerialNum()
@@ -325,6 +361,8 @@ func (h *SecondJobUpdateInstanceStatusHandler) triggerNextCycle(cycleId string, 
 }
 
 func (h *SecondJobUpdateInstanceStatusHandler) setHistory(serialNum int64, loopStartTime int64, status processor.InstanceStatus) {
+	h.progressMu.Lock()
+	defer h.progressMu.Unlock()
 	if status == processor.InstanceStatusSucceed {
 		h.secondProgressDetail.GetTodayProgressCounter().IncrementOneSuccess()
 	} else {
@@ -351,10 +389,19 @@ func (h *SecondJobUpdateInstanceStatusHandler) setHistory(serialNum int64, loopS
 	taskProgressMap := make(map[string]*common.TaskProgressCounter)
 	switch h.taskMaster.(type) {
 	case taskmaster.MapTaskMaster:
-		h.taskMaster.(*MapTaskMaster).GetTaskProgressMap().Range(func(key, value any) bool {
-			taskProgressMap[key.(string)] = value.(*common.TaskProgressCounter)
-			return true
-		})
+		snapshot := func() {
+			h.taskMaster.(interface{ GetTaskProgressMap() *sync.Map }).GetTaskProgressMap().Range(func(key, value any) bool {
+				taskProgressMap[key.(string)] = value.(*common.TaskProgressCounter)
+				return true
+			})
+		}
+		if fenced, ok := h.taskMaster.(interface{ withCycleState(int64, func()) bool }); ok {
+			if !fenced.withCycleState(serialNum, snapshot) {
+				return
+			}
+		} else {
+			snapshot()
+		}
 	case *BroadcastTaskMaster:
 		workerProgressCounterMap := h.taskMaster.(*BroadcastTaskMaster).GetWorkerProgressMap()
 		if utils.SyncMapLen(workerProgressCounterMap) == 0 {
@@ -407,7 +454,9 @@ func (h *SecondJobUpdateInstanceStatusHandler) triggerNewCycle() {
 
 	cycleId := utils.GetUniqueId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId(), h.taskMaster.AcquireSerialNum())
 	logger.Infof("cycleId:%s cycle begin.", cycleId)
+	h.progressMu.Lock()
 	h.cycleStartTime = time.Now().UnixMilli()
+	h.progressMu.Unlock()
 	h.jobInstanceInfo.SetScheduleTime(time.Now())
 	// If existed invalid worker nodes, re-obtain the latest list
 	if h.taskMaster.ExistInvalidWorker() {
@@ -420,6 +469,8 @@ func (h *SecondJobUpdateInstanceStatusHandler) triggerNewCycle() {
 	}
 	h.taskMaster.SubmitInstance(h.jobInstanceInfo)
 
+	h.progressMu.Lock()
+	defer h.progressMu.Unlock()
 	h.triggerTimes++
 	// If it is a standalone task, cu+1
 	// If it is a distributed task, cu+workers

@@ -225,7 +225,11 @@ func (m *ShardingTaskMaster) CheckProcessor() {
 }
 
 func (m *ShardingTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
-	if err, _ := m.clearPersistedTasks(jobInstanceId); err != nil {
+	return m.postFinishAtCycle(jobInstanceId, m.GetSerialNum())
+}
+
+func (m *ShardingTaskMaster) postFinishAtCycle(jobInstanceID, serial int64) *processor.ProcessResult {
+	if err, admitted := m.clearPersistedTasks(jobInstanceID, serial); err != nil || !admitted {
 		return nil
 	}
 	return processor.NewProcessResult(processor.WithSucceed())

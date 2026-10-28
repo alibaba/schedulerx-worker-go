@@ -51,10 +51,39 @@ func (h *commonUpdateInstanceStatusHandler) Handle(serialNum int64, instanceStat
 	}
 	jobInstanceId := h.jobInstanceInfo.GetJobInstanceId()
 
-	if h.taskMaster.GetInstanceStatus() != instanceStatus {
-		h.taskMaster.SetInstanceStatus(instanceStatus)
+	changed := false
+	commit := func() {
+		if h.taskMaster.GetInstanceStatus() != instanceStatus {
+			h.taskMaster.SetInstanceStatus(instanceStatus)
+			changed = true
+		}
+	}
+	if fenced, ok := h.taskMaster.(interface {
+		withCycleState(int64, func()) bool
+		withCycleControl(int64, func()) bool
+	}); ok {
+		var admitted bool
+		if h.taskMaster.IsKilled() {
+			admitted = fenced.withCycleControl(serialNum, commit)
+		} else {
+			admitted = fenced.withCycleState(serialNum, commit)
+		}
+		if !admitted {
+			return nil
+		}
+	} else {
+		commit()
+	}
+	if changed {
 		if instanceStatus.IsFinished() {
-			postResult := h.taskMaster.PostFinish(jobInstanceId)
+			var postResult *processor.ProcessResult
+			if fenced, ok := h.taskMaster.(interface {
+				postFinishAtCycle(int64, int64) *processor.ProcessResult
+			}); ok {
+				postResult = fenced.postFinishAtCycle(jobInstanceId, serialNum)
+			} else {
+				postResult = h.taskMaster.PostFinish(jobInstanceId)
+			}
 			if !h.currentCycle(serialNum) {
 				return nil
 			}

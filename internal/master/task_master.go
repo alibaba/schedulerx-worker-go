@@ -49,8 +49,8 @@ type TaskMaster struct {
 	jobInstanceInfo          *common.JobInstanceInfo      `json:"jobInstanceInfo,omitempty"`
 	jobInstanceProgress      string                       `json:"jobInstanceProgress,omitempty"`
 	statusHandler            UpdateInstanceStatusHandler  `json:"statusHandler,omitempty"`
-	killed                   bool                         `json:"killed,omitempty"`              // WARNING: not concurrency-safe
-	inited                   bool                         `json:"inited,omitempty"`              // WARNING: not concurrency-safe
+	killed                   bool                         `json:"killed,omitempty"`
+	inited                   bool                         `json:"inited,omitempty"`
 	aliveCheckWorkerSet      *utils.ConcurrentSet[string] `json:"aliveCheckWorkerSet,omitempty"` // string
 	serverDiscovery          discovery.ServiceDiscover    `json:"serverDiscovery"`
 	serialNum                *atomic.Int64                `json:"serialNum,omitempty"`          // 秒级任务使用，当前循环次数

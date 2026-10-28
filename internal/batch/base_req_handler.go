@@ -100,11 +100,24 @@ func (rcvr *BaseReqHandler) AsyncHandleReqs(h ReqHandler) []interface{} {
 }
 
 func (rcvr *BaseReqHandler) SyncHandleReqs(h ReqHandler, pageSize int32, workerIdAddr string) []interface{} {
-	reqs := rcvr.reqsQueue.RetrieveRequests(pageSize)
+	return rcvr.SyncHandleReqsWithAdmission(h, pageSize, workerIdAddr, func(take func()) bool { take(); return true })
+}
+
+// SyncHandleReqsWithAdmission covers only dequeue/accounting. Process may perform persistence I/O
+// and must run outside the owner's short cycle-state lock.
+func (rcvr *BaseReqHandler) SyncHandleReqsWithAdmission(h ReqHandler, pageSize int32, workerIDAddr string, admit func(func()) bool) []interface{} {
+	var reqs []interface{}
+	if !admit(func() {
+		reqs = rcvr.reqsQueue.RetrieveRequests(pageSize)
+		if len(reqs) > 0 {
+			rcvr.activeRunnableNum.Inc()
+		}
+	}) {
+		return nil
+	}
 	if len(reqs) > 0 {
-		rcvr.activeRunnableNum.Inc()
-		h.Process(rcvr.jobInstanceId, reqs, workerIdAddr)
-		rcvr.activeRunnableNum.Dec()
+		defer rcvr.activeRunnableNum.Dec()
+		h.Process(rcvr.jobInstanceId, reqs, workerIDAddr)
 	}
 	return reqs
 }
