@@ -45,9 +45,9 @@ type ShardingTaskMaster struct {
 }
 
 func NewShardingTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) *ShardingTaskMaster {
-	return &ShardingTaskMaster{
-		GridTaskMaster: NewGridTaskMaster(jobInstanceInfo, actorCtx),
-	}
+	m := &ShardingTaskMaster{GridTaskMaster: NewGridTaskMaster(jobInstanceInfo, actorCtx)}
+	m.bindBatchHandlers(m)
+	return m
 }
 
 func (m *ShardingTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceInfo) error {
@@ -124,8 +124,13 @@ func (m *ShardingTaskMaster) parseShardingParameters(jobInstanceInfo *common.Job
 
 func (m *ShardingTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.ContainerReportTaskStatusRequest) {
 	m.GridTaskMaster.BatchUpdateTaskStatues(requests)
+	m.statusWriteMu.RLock()
+	defer m.statusWriteMu.RUnlock()
+	if m.statusWritesRetired || m.cycleClosed {
+		return
+	}
 	for _, req := range requests {
-		if !m.acceptsStatusAttempt(req.Attempt) {
+		if !m.acceptsTaskGeneration(req.Attempt, req.SerialNum) {
 			continue
 		}
 		var (
@@ -143,17 +148,24 @@ func (m *ShardingTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.Conta
 
 func (m *ShardingTaskMaster) BatchHandlePulledProgress(masterStartContainerRequests []*schedulerx.MasterStartContainerRequest,
 	remoteWorker string) (map[string][]*schedulerx.MasterStartContainerRequest, map[string][]*schedulerx.MasterStartContainerRequest) {
+	m.statusWriteMu.RLock()
+	defer m.statusWriteMu.RUnlock()
 	var (
 		worker2ReqsWithNormal   = make(map[string][]*schedulerx.MasterStartContainerRequest)
 		worker2ReqsWithFailover = make(map[string][]*schedulerx.MasterStartContainerRequest)
 	)
 	for _, request := range masterStartContainerRequests {
+		if m.statusWritesRetired || m.cycleClosed || !m.acceptsTaskGeneration(request.Attempt, request.SerialNum) {
+			continue
+		}
 		workerIdAddr := remoteWorker
 		if workerIdAddr == "" {
 			workerIdAddr = m.selectWorker()
 		}
 		if workerIdAddr == "" {
+			m.statusWriteMu.RUnlock()
 			m.updateNewInstanceStatus(m.GetSerialNum(), m.GetJobInstanceInfo().GetJobInstanceId(), processor.InstanceStatusFailed, "all worker is down!")
+			m.statusWriteMu.RLock()
 			break
 		}
 

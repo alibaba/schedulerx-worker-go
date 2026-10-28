@@ -25,6 +25,7 @@ import (
 	"github.com/panjf2000/ants/v2"
 	"go.uber.org/atomic"
 
+	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
 	"github.com/alibaba/schedulerx-worker-go/internal/masterpool"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
@@ -58,6 +59,7 @@ type BaseReqHandler struct {
 	latestRequest           interface{}
 	latestRequestLock       sync.RWMutex
 	taskMasterPool          *masterpool.TaskMasterPool
+	owner                   taskmaster.MapTaskMaster
 
 	// onging runnable number, every subclass implement process method should decrement this value when a job was done.
 	activeRunnableNum *atomic.Int64
@@ -111,7 +113,6 @@ func (rcvr *BaseReqHandler) Clear() {
 	if rcvr.reqsQueue != nil {
 		rcvr.reqsQueue.Clear()
 	}
-	rcvr.activeRunnableNum.Store(0)
 }
 
 func (rcvr *BaseReqHandler) GetLatestRequest() interface{} {
@@ -183,9 +184,6 @@ func (rcvr *BaseReqHandler) Stop() {
 	if rcvr.reqsQueue != nil {
 		rcvr.reqsQueue.Clear()
 	}
-	if rcvr.activeRunnableNum != nil {
-		rcvr.activeRunnableNum.Store(0)
-	}
 }
 
 func (rcvr *BaseReqHandler) SubmitRequest(request interface{}) {
@@ -198,3 +196,6 @@ func (rcvr *BaseReqHandler) SubmitRequest(request interface{}) {
 func (rcvr *BaseReqHandler) GetTaskMasterPool() *masterpool.TaskMasterPool {
 	return rcvr.taskMasterPool
 }
+
+// BindTaskMaster is construction-only, before any handler goroutine starts.
+func (rcvr *BaseReqHandler) BindTaskMaster(owner taskmaster.MapTaskMaster) { rcvr.owner = owner }

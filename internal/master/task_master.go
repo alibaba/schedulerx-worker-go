@@ -213,9 +213,7 @@ func (m *TaskMaster) BatchUpdateTaskStatus(taskMaster taskmaster.TaskMaster, req
 		if progress := status.GetProgress(); progress != "" {
 			containerReportTaskStatusReq.Progress = proto.String(progress)
 		}
-		if serialNum := req.GetSerialNum(); serialNum != 0 {
-			containerReportTaskStatusReq.SerialNum = proto.Int64(serialNum)
-		}
+		containerReportTaskStatusReq.SerialNum = req.SerialNum
 
 		switch taskMaster.(type) {
 		case *BroadcastTaskMaster:

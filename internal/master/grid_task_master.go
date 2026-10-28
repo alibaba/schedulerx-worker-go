@@ -61,6 +61,7 @@ func NewGridTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.C
 	} else {
 		gridTaskMaster.taskDispatchReqHandler = batch.NewTaskPushReqHandler(jobInstanceId, 1, 1, gridTaskMaster.pageSize*int32(len(jobInstanceInfo.GetAllWorkers())), gridTaskMaster.taskBlockingQueue, 3000)
 	}
+	gridTaskMaster.bindBatchHandlers(gridTaskMaster)
 	return gridTaskMaster
 }
 

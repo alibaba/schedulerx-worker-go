@@ -19,7 +19,6 @@ package batch
 import (
 	"time"
 
-	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
@@ -41,28 +40,20 @@ func NewTaskPushReqHandler(jobInstanceId int64, coreBatchThreadNum int, maxBatch
 }
 
 func (h *TaskPushReqHandler) Process(jobInstanceId int64, reqs []interface{}, workerAddr string) {
-	masterStartContainerReqs := make([]*schedulerx.MasterStartContainerRequest, 0, len(reqs))
+	requests := make([]*schedulerx.MasterStartContainerRequest, 0, len(reqs))
 	for _, req := range reqs {
-		masterStartContainerReqs = append(masterStartContainerReqs, req.(*schedulerx.MasterStartContainerRequest))
+		requests = append(requests, req.(*schedulerx.MasterStartContainerRequest))
 	}
-
+	owner := h.owner
 	err := globalPool.Submit(func() {
-		if taskMaster := h.taskMasterPool.Get(jobInstanceId); taskMaster != nil {
-			if mapTaskMaster, ok := taskMaster.(taskmaster.MapTaskMaster); ok {
-				startTime := time.Now()
-				mapTaskMaster.BatchDispatchTasks(masterStartContainerReqs, "")
-				logger.Infof("jobInstance=%d, batch dispatch cost:%dms, dispatchSize:%d, size:%d", jobInstanceId, time.Since(startTime).Milliseconds(), h.dispatchSize, len(reqs))
-			} else {
-				logger.Warnf("TaskMaster get from taskMasterPool is empty, jobInstanceId:%d", jobInstanceId)
-			}
-		} else {
-			logger.Warnf("TaskMaster get from taskMasterPool is not MapTaskMaster, jobInstanceId:%d", jobInstanceId)
+		defer h.activeRunnableNum.Dec()
+		if owner != nil {
+			owner.BatchDispatchTasks(requests, "")
 		}
-
-		h.activeRunnableNum.Dec()
 	})
 	if err != nil {
-		logger.Errorf("TaskPushReqHandler process failed, submit to batchProcessSvc failed, err=%s", err.Error())
+		h.activeRunnableNum.Dec()
+		logger.Errorf("TaskPushReqHandler submit failed: %s", err)
 	}
 }
 

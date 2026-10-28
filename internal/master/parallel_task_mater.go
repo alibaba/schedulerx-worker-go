@@ -83,6 +83,7 @@ func NewParallelTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx act
 
 	// Used to support secondary subtask retries to prevent taskId duplication
 	parallelTaskMaster.taskIdGenerator = atomic.NewInt64(time.Now().Unix())
+	parallelTaskMaster.bindBatchHandlers(parallelTaskMaster)
 	return parallelTaskMaster
 }
 
@@ -125,55 +126,62 @@ func (m *ParallelTaskMaster) RetryTasks(taskEntities []*schedulerx.RetryTaskEnti
 		Status:        proto.Int32(int32(taskstatus.TaskStatusInit)),
 	}
 
-	// Send to server by master
-	actorcomm.TaskMasterMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
-		Msg: req,
+	serial := m.GetSerialNum()
+	var response *schedulerx.WorkerBatchUpdateTaskStatusResponse
+	admitted := m.withTaskPersistence(serial, func() {
+		actorcomm.TaskMasterMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{Msg: req}
+		timer := time.NewTimer(30 * time.Second)
+		defer timer.Stop()
+		select {
+		case response = <-actorcomm.WorkerBatchUpdateTaskStatusRespMsgSender():
+		case <-timer.C:
+		}
+	})
+	if !admitted || !m.cycleActive(serial) {
+		return
 	}
+	if response == nil {
+		logger.Errorf("RetryTasks server timeout, jobInstanceId=%d", m.jobInstanceInfo.GetJobInstanceId())
+		return
+	}
+	resp := response
 
-	// Wait 30 seconds
-	timer := time.NewTimer(30 * time.Second)
-	defer timer.Stop()
-	select {
-	case resp := <-actorcomm.WorkerBatchUpdateTaskStatusRespMsgSender():
-		if resp.GetSuccess() {
-			if !m.IsInited() {
-				// If it has not been initialized, re-initialize it.
-				m.startBatchHandler()
-				m.init()
-				for _, taskEntity := range taskEntities {
-					taskName := taskEntity.GetTaskName()
-					if counter, ok := m.taskProgressMap.LoadOrStore(taskName, common.NewTaskProgressCounter(taskName)); ok {
-						counter.(*common.TaskProgressCounter).IncrementOneTotal()
-					}
-				}
-			} else {
-				for _, taskEntity := range taskEntities {
-					taskName := taskEntity.GetTaskName()
-					workerAddr := taskEntity.GetWorkerAddr()
-					oldStatus := taskEntity.GetOldStatus()
-					if taskProgressCounter, ok := m.taskProgressMap.Load(taskName); ok {
-						switch taskstatus.TaskStatus(oldStatus) {
-						case taskstatus.TaskStatusSucceed:
-							taskProgressCounter.(*common.TaskProgressCounter).DecrementSuccess()
-						case taskstatus.TaskStatusFailed:
-							taskProgressCounter.(*common.TaskProgressCounter).DecrementFailed()
-						}
-					}
-					if workerProgressCounter, ok := m.workerProgressMap.Load(workerAddr); ok {
-						switch taskstatus.TaskStatus(oldStatus) {
-						case taskstatus.TaskStatusSucceed:
-							workerProgressCounter.(*common.WorkerProgressCounter).DecrementSuccess()
-						case taskstatus.TaskStatusFailed:
-							workerProgressCounter.(*common.WorkerProgressCounter).DecrementFailed()
-						}
-					}
+	if resp.GetSuccess() {
+		if !m.IsInited() {
+			// If it has not been initialized, re-initialize it.
+			m.startBatchHandler()
+			m.init()
+			for _, taskEntity := range taskEntities {
+				taskName := taskEntity.GetTaskName()
+				if counter, ok := m.taskProgressMap.LoadOrStore(taskName, common.NewTaskProgressCounter(taskName)); ok {
+					counter.(*common.TaskProgressCounter).IncrementOneTotal()
 				}
 			}
 		} else {
-			logger.Errorf("RetryTasks in ParallelTaskMaster timeout, jobInstanceId=%d, errMsg=%s", m.jobInstanceInfo.GetJobInstanceId(), resp.GetMessage())
-			//TODO 发送失败应该尝试另一个server
+			for _, taskEntity := range taskEntities {
+				taskName := taskEntity.GetTaskName()
+				workerAddr := taskEntity.GetWorkerAddr()
+				oldStatus := taskEntity.GetOldStatus()
+				if taskProgressCounter, ok := m.taskProgressMap.Load(taskName); ok {
+					switch taskstatus.TaskStatus(oldStatus) {
+					case taskstatus.TaskStatusSucceed:
+						taskProgressCounter.(*common.TaskProgressCounter).DecrementSuccess()
+					case taskstatus.TaskStatusFailed:
+						taskProgressCounter.(*common.TaskProgressCounter).DecrementFailed()
+					}
+				}
+				if workerProgressCounter, ok := m.workerProgressMap.Load(workerAddr); ok {
+					switch taskstatus.TaskStatus(oldStatus) {
+					case taskstatus.TaskStatusSucceed:
+						workerProgressCounter.(*common.WorkerProgressCounter).DecrementSuccess()
+					case taskstatus.TaskStatusFailed:
+						workerProgressCounter.(*common.WorkerProgressCounter).DecrementFailed()
+					}
+				}
+			}
 		}
-	case <-timer.C:
-		logger.Errorf("RetryTasks in ParallelTaskMaster timeout, jobInstanceId=%d", m.jobInstanceInfo.GetJobInstanceId())
+	} else {
+		logger.Errorf("RetryTasks in ParallelTaskMaster timeout, jobInstanceId=%d, errMsg=%s", m.jobInstanceInfo.GetJobInstanceId(), resp.GetMessage())
+		//TODO 发送失败应该尝试另一个server
 	}
 }
