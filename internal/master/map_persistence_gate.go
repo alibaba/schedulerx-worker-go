@@ -176,3 +176,9 @@ func (m *MapTaskMaster) withCycleControl(serial int64, operation func()) bool {
 	operation()
 	return true
 }
+
+// WithCycleHandoff joins only the actual non-waiting framework send. Callers
+// capture the owner/serial at receipt and obtain reply addresses outside it.
+func (m *MapTaskMaster) WithCycleHandoff(serial int64, handoff func()) bool {
+	return m.withTaskPersistence(serial, handoff)
+}

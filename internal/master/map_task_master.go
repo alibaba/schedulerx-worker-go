@@ -1339,8 +1339,11 @@ func (m *MapTaskMaster) initTaskProgress(taskName string, delta int) {
 	taskProgressCounter.(*common.TaskProgressCounter).IncrementTotal(int64(delta))
 }
 
-func (m *MapTaskMaster) SyncPullTasks(pageSize int32, workerIdAddr string) []*schedulerx.MasterStartContainerRequest {
+func (m *MapTaskMaster) SyncPullTasks(pageSize int32, workerIdAddr string, serials ...int64) []*schedulerx.MasterStartContainerRequest {
 	serial := m.GetSerialNum()
+	if len(serials) > 0 {
+		serial = serials[0]
+	}
 	reqs := m.taskDispatchReqHandler.SyncHandleReqsWithAdmission(m.taskDispatchReqHandler, pageSize, workerIdAddr, func(take func()) bool {
 		return m.withCycleState(serial, func() {
 			if m.getTotalPulledAndRunning() < int64(m.xAttrs.GetGlobalConsumerSize()) {

@@ -226,12 +226,15 @@ func (a *taskActor) handlePullTasks(actorCtx actor.Context, req *schedulerx.Pull
 	var (
 		jobInstanceId = req.GetJobInstanceId()
 		response      = new(schedulerx.PullTaskFromMasterResponse)
+		replyOwner    taskmaster.MapTaskMaster
+		replySerial   int64
 	)
 	if taskMaster := a.taskMasterPool.Get(jobInstanceId); taskMaster != nil {
 		if mapTaskMaster, ok := taskMaster.(taskmaster.MapTaskMaster); ok {
+			replyOwner, replySerial = mapTaskMaster, mapTaskMaster.GetSerialNum()
 			response = &schedulerx.PullTaskFromMasterResponse{
 				Success: proto.Bool(true),
-				Request: mapTaskMaster.SyncPullTasks(req.GetPageSize(), req.GetWorkerIdAddr()),
+				Request: mapTaskMaster.SyncPullTasks(req.GetPageSize(), req.GetWorkerIdAddr(), replySerial),
 			}
 		} else {
 			response = &schedulerx.PullTaskFromMasterResponse{
@@ -246,7 +249,14 @@ func (a *taskActor) handlePullTasks(actorCtx actor.Context, req *schedulerx.Pull
 		}
 	}
 	if senderPid := actorCtx.Sender(); senderPid != nil {
-		actorCtx.Send(senderPid, response)
+		if replyOwner != nil {
+			if !replyOwner.WithCycleHandoff(replySerial, func() { actorCtx.Send(senderPid, response) }) {
+				// Complete the obsolete RPC without handing any retired task to Worker.
+				actorCtx.Send(senderPid, &schedulerx.PullTaskFromMasterResponse{Success: proto.Bool(false), Message: proto.String("task master cycle is inactive")})
+			}
+		} else {
+			actorCtx.Send(senderPid, response)
+		}
 	} else {
 		logger.Warnf("Cannot send PullTaskFromMasterResponse due to sender is unknown in handlePullTasks of taskActor, request=%+v", req)
 	}
