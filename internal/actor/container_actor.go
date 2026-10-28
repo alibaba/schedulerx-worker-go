@@ -178,6 +178,7 @@ func (a *containerActor) convert2ContainerReportTaskStatusRequest(actorCtx actor
 		InstanceMasterActorPath: proto.String(req.GetInstanceMasterAkkaPath()),
 		TimeType:                proto.Int32(req.GetTimeType()),
 		SerialNum:               proto.Int64(req.GetSerialNum()),
+		Attempt:                 proto.Int32(req.GetAttempt()),
 	}
 }
 

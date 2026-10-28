@@ -140,6 +140,7 @@ func (m *BroadcastTaskMaster) dispatchTask(jobInstanceInfo *common.JobInstanceIn
 				JobInstanceId: proto.Int64(jobInstanceInfo.GetJobInstanceId()),
 				TaskId:        proto.Int64(taskId),
 				Status:        proto.Int32(int32(taskstatus.TaskStatusFailed)),
+				Attempt:       proto.Int32(m.jobInstanceInfo.GetAttempt()),
 				WorkerId:      proto.String(workerId),
 				WorkerAddr:    proto.String(workerAddr),
 				SerialNum:     proto.Int64(m.serialNum.Load()),
@@ -208,6 +209,7 @@ func (m *BroadcastTaskMaster) KillInstance(reason string) error {
 				JobInstanceId: proto.Int64(m.jobInstanceInfo.GetJobInstanceId()),
 				TaskId:        proto.Int64(int64(taskId)),
 				Status:        proto.Int32(int32(taskstatus.TaskStatusFailed)),
+				Attempt:       proto.Int32(m.jobInstanceInfo.GetAttempt()),
 				WorkerId:      proto.String(workerId),
 				WorkerAddr:    proto.String(workerAddr),
 			}
@@ -239,6 +241,9 @@ func (m *BroadcastTaskMaster) DestroyContainerPool() {
 }
 
 func (m *BroadcastTaskMaster) UpdateTaskStatus(request *schedulerx.ContainerReportTaskStatusRequest) error {
+	if !m.acceptsStatusAttempt(request.Attempt) {
+		return nil
+	}
 	if request.GetSerialNum() != m.GetSerialNum() {
 		errMsg := fmt.Sprintf("ignore ContainerReportTaskStatusRequest, current serialNum=%v, but request serialNum=%v.", m.GetSerialNum(), request.GetSerialNum())
 		return fmt.Errorf(errMsg)
@@ -404,6 +409,7 @@ func (m *BroadcastTaskMaster) checkWorkerAlive(ctx context.Context) {
 						JobInstanceId: proto.Int64(int64(jobInstanceId)),
 						TaskId:        proto.Int64(int64(taskId)),
 						Status:        proto.Int32(int32(taskstatus.TaskStatusFailed)),
+						Attempt:       proto.Int32(m.jobInstanceInfo.GetAttempt()),
 						WorkerId:      proto.String(workerId),
 						WorkerAddr:    proto.String(workerAddr),
 						SerialNum:     proto.Int64(m.GetSerialNum()),

@@ -174,3 +174,60 @@ func checkRejectedStatus(t *testing.T, files *protoregistry.Files) {
 		t.Fatalf("legacy master lost rejection metadata: %v", old)
 	}
 }
+
+// Attempt is optional so legacy publishers remain readable; explicit zero must
+// survive old decoders as an unknown field rather than becoming absent metadata.
+func TestStatusAttemptWireCompatibility(t *testing.T) {
+	for version, schema := range map[string][]byte{"v1.0.10": legacyDeployedSchema, "v1.0.13": legacyWorkerSchema} {
+		t.Run(version, func(t *testing.T) {
+			files := legacyDescriptors(t, schema)
+			for _, attempt := range []int32{0, 3} {
+				cases := []proto.Message{
+					&ContainerReportTaskStatusRequest{JobId: proto.Int64(1), JobInstanceId: proto.Int64(2), TaskId: proto.Int64(3), Status: proto.Int32(4), WorkerAddr: proto.String("worker"), WorkerId: proto.String("id"), Attempt: proto.Int32(attempt)},
+					&ContainerBatchReportTaskStatuesRequest{JobId: proto.Int64(1), JobInstanceId: proto.Int64(2), TaskMasterAkkaPath: proto.String("master"), WorkerAddr: proto.String("worker"), WorkerId: proto.String("id"), Attempt: proto.Int32(attempt), TaskStatues: []*TaskStatusInfo{{TaskId: proto.Int64(3), Status: proto.Int32(4)}}},
+				}
+				for _, message := range cases {
+					name := message.ProtoReflect().Descriptor().FullName()
+					descriptor, err := files.FindDescriptorByName(name)
+					if err != nil {
+						t.Fatal(err)
+					}
+					old := dynamicpb.NewMessage(descriptor.(protoreflect.MessageDescriptor))
+					encoded, err := proto.Marshal(message)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := proto.Unmarshal(encoded, old); err != nil {
+						t.Fatal(err)
+					}
+					if len(old.GetUnknown()) == 0 {
+						t.Fatal("new attempt field did not reach legacy decoder")
+					}
+					roundtrip, err := proto.Marshal(old)
+					if err != nil {
+						t.Fatal(err)
+					}
+					decoded := message.ProtoReflect().New().Interface()
+					if err := proto.Unmarshal(roundtrip, decoded); err != nil {
+						t.Fatal(err)
+					}
+					if !proto.Equal(message, decoded) {
+						t.Fatal("legacy roundtrip lost explicit attempt", name, attempt)
+					}
+					old.SetUnknown(nil)
+					legacyOnly, err := proto.Marshal(old)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := proto.Unmarshal(legacyOnly, decoded); err != nil {
+						t.Fatal(err)
+					}
+					field := decoded.ProtoReflect().Descriptor().Fields().ByName("attempt")
+					if decoded.ProtoReflect().Has(field) {
+						t.Fatal("legacy publisher acquired an explicit attempt")
+					}
+				}
+			}
+		})
+	}
+}

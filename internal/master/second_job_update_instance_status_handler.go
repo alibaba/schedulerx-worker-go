@@ -221,7 +221,7 @@ func (h *SecondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceS
 		h.taskMaster.SetInstanceStatus(processor.InstanceStatusFailed)
 		h.taskMaster.Stop()
 		h.stop()
-		h.masterPool.Remove(h.jobInstanceInfo.GetJobInstanceId())
+		h.masterPool.RemoveIfOwner(h.jobInstanceInfo.GetJobInstanceId(), h.taskMaster)
 
 		if result != "killed from server" {
 			// 对服务端强制停止操作不做状态反馈

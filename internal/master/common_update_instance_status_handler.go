@@ -89,10 +89,8 @@ func (h *commonUpdateInstanceStatusHandler) Handle(serialNum int64, instanceStat
 
 			// destroy containers and taskMaster
 			h.taskMaster.DestroyContainerPool()
-			if taskMaster := h.masterPool.Get(jobInstanceId); taskMaster != nil {
-				taskMaster.Stop()
-				h.masterPool.Remove(jobInstanceId)
-			}
+			h.taskMaster.Stop()
+			h.masterPool.RemoveIfOwner(jobInstanceId, h.taskMaster)
 			uniqueId := utils.GetUniqueIdWithoutTaskId(h.jobInstanceInfo.GetJobId(), jobInstanceId)
 			logger.Infof("uniqueId: %s is finished, remove from MasterPool.", uniqueId)
 		}

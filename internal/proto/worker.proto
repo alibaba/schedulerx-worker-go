@@ -355,6 +355,7 @@ message ContainerReportTaskStatusRequest {
 	optional int64 serial_num = 11;
 	optional string progress = 12;
 	optional string traceId = 13;
+	optional int32 attempt = 14;
 }
 
 message ContainerReportTaskStatusResponse {
@@ -373,6 +374,7 @@ message ContainerBatchReportTaskStatuesRequest {
 	optional bool already_unConfirm_retry = 8;
 	optional int64 serial_num = 9;
 	optional string metrics_json = 10;
+	optional int32 attempt = 11;
 }
 
 message TaskStatusInfo {

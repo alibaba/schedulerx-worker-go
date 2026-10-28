@@ -95,6 +95,7 @@ func (h *ContainerStatusReqHandler) Process(jobInstanceId int64, requests []inte
 			WorkerAddr:         taskStatusRequest.WorkerAddr,
 			WorkerId:           taskStatusRequest.WorkerId,
 			SerialNum:          taskStatusRequest.SerialNum,
+			Attempt:            taskStatusRequest.Attempt,
 		}
 		actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
 			Msg: req,

@@ -125,6 +125,9 @@ func (m *ShardingTaskMaster) parseShardingParameters(jobInstanceInfo *common.Job
 func (m *ShardingTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.ContainerReportTaskStatusRequest) {
 	m.GridTaskMaster.BatchUpdateTaskStatues(requests)
 	for _, req := range requests {
+		if !m.acceptsStatusAttempt(req.Attempt) {
+			continue
+		}
 		var (
 			taskId     = req.GetTaskId()
 			taskStatus = req.GetStatus()
@@ -205,7 +208,7 @@ func (m *ShardingTaskMaster) CheckProcessor() {
 }
 
 func (m *ShardingTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
-	if err := m.taskPersistence.ClearTasks(jobInstanceId); err != nil {
+	if err, _ := m.clearPersistedTasks(jobInstanceId); err != nil {
 		return nil
 	}
 	return processor.NewProcessResult(processor.WithSucceed())

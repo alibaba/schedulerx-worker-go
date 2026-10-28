@@ -283,6 +283,7 @@ func (c *ThreadContainer) sendTaskStatus(result *processor.ProcessResult, worker
 		WorkerAddr:              proto.String(workerAddr),
 		WorkerId:                proto.String(utils.GetWorkerId()),
 		SerialNum:               proto.Int64(c.jobCtx.SerialNum()),
+		Attempt:                 proto.Int32(c.jobCtx.Attempt()),
 		InstanceMasterActorPath: proto.String(c.jobCtx.InstanceMasterActorPath()),
 	}
 	if c.jobCtx.TaskName() != "" {

@@ -82,6 +82,7 @@ func (m *StandaloneTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanc
 				WorkerId:      proto.String(workerId),
 				WorkerAddr:    proto.String(workerAddr),
 				SerialNum:     proto.Int64(m.serialNum.Load()),
+				Attempt:       proto.Int32(jobInstanceInfo.GetAttempt()),
 			}
 			m.UpdateTaskStatus(failedReq)
 		}

@@ -65,11 +65,58 @@ func (p *TaskMasterPool) Get(jobInstanceId int64) taskmaster.TaskMaster {
 }
 
 func (p *TaskMasterPool) Put(jobInstanceId int64, master taskmaster.TaskMaster) {
-	p.taskMasters.Store(jobInstanceId, master)
+	for {
+		previous, loaded := p.taskMasters.LoadOrStore(jobInstanceId, master)
+		if !loaded || previous == master {
+			return
+		}
+		old := previous.(taskmaster.TaskMaster)
+		if !sameStatusOwner(old, master) {
+			retireStatusWrites(old)
+		}
+		// A concurrent removal/replacement may have won while I/O drained.
+		// Retry against that owner rather than overwriting an unchecked one.
+		if p.taskMasters.CompareAndSwap(jobInstanceId, previous, master) {
+			return
+		}
+	}
 }
 
 func (p *TaskMasterPool) Remove(jobInstanceId int64) {
-	p.taskMasters.Delete(jobInstanceId)
+	p.remove(jobInstanceId, nil)
+}
+
+// RemoveIfOwner cannot retire or remove a replacement from an old callback.
+func (p *TaskMasterPool) RemoveIfOwner(jobInstanceId int64, expected taskmaster.TaskMaster) bool {
+	return p.remove(jobInstanceId, expected)
+}
+
+func (p *TaskMasterPool) remove(jobInstanceId int64, expected taskmaster.TaskMaster) bool {
+	previous, ok := p.taskMasters.Load(jobInstanceId)
+	if !ok {
+		return false
+	}
+	old := previous.(taskmaster.TaskMaster)
+	if expected != nil && !sameStatusOwner(old, expected) {
+		return false
+	}
+	retireStatusWrites(old)
+	return p.taskMasters.CompareAndDelete(jobInstanceId, previous)
+}
+
+func retireStatusWrites(master taskmaster.TaskMaster) {
+	if retiring, ok := master.(interface{ RetireStatusWrites() }); ok {
+		retiring.RetireStatusWrites()
+	}
+}
+
+func sameStatusOwner(left, right taskmaster.TaskMaster) bool {
+	if left == right {
+		return true
+	}
+	l, lok := left.(interface{ StatusOwner() taskmaster.TaskMaster })
+	r, rok := right.(interface{ StatusOwner() taskmaster.TaskMaster })
+	return lok && rok && l.StatusOwner() == r.StatusOwner()
 }
 
 func (p *TaskMasterPool) Contains(jobInstanceId int64) bool {
