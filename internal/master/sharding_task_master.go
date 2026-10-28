@@ -228,5 +228,6 @@ func (m *ShardingTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessR
 
 func (m *ShardingTaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
 	m.GridTaskMaster.Clear(taskMaster)
-	m.shardingTaskStatusMap = sync.Map{}
 }
+
+func (m *ShardingTaskMaster) resetCycleState() { m.shardingTaskStatusMap = sync.Map{} }

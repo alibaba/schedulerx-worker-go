@@ -412,13 +412,16 @@ func (m *MapTaskMaster) checkWorkerAlive(ctx context.Context) {
 				if resp := response.(*schedulerx.MasterCheckWorkerAliveResponse); !resp.GetSuccess() {
 					logger.Warnf("jobInstanceId=%d of worker=%s is not alive, remote worker resp=%+v", m.GetJobInstanceInfo().GetJobInstanceId(), workerIdAddr, resp.GetMessage())
 					m.handleWorkerShutdown(workerIdAddr, serial)
+					if !m.cycleActive(serial) {
+						return
+					}
 
 					// destroy containers of worker of PullModel
 					destroyContainerPoolRequest := &schedulerx.MasterDestroyContainerPoolRequest{
 						JobInstanceId: proto.Int64(m.GetJobInstanceInfo().GetJobInstanceId()),
 						JobId:         proto.Int64(m.GetJobInstanceInfo().GetJobId()),
 						WorkerIdAddr:  proto.String(workerAddr),
-						SerialNum:     proto.Int64(m.GetSerialNum()),
+						SerialNum:     proto.Int64(serial),
 						Attempt:       proto.Int32(m.GetJobInstanceInfo().GetAttempt()),
 					}
 					actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
@@ -493,15 +496,21 @@ func (m *MapTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceInfo) 
 }
 
 func (m *MapTaskMaster) UpdateTaskStatus(request *schedulerx.ContainerReportTaskStatusRequest) error {
+	serial := m.GetSerialNum()
 	done := m.cycleDone()
-	if !m.cycleActive(m.GetSerialNum()) || !m.acceptsTaskGeneration(request.Attempt, request.SerialNum) {
+	if !m.cycleActive(serial) || !m.acceptsTaskGeneration(request.Attempt, request.SerialNum) {
 		return nil
+	}
+	if request.SerialNum == nil {
+		request = proto.Clone(request).(*schedulerx.ContainerReportTaskStatusRequest)
+		request.SerialNum = proto.Int64(serial)
 	}
 	m.taskStatusReqQueue.SubmitRequestUntil(request, done)
 	return nil
 }
 
 func (m *MapTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.ContainerReportTaskStatusRequest) {
+	serial := m.GetSerialNum()
 	m.statusWriteMu.RLock()
 	if m.statusWritesRetired || m.cycleClosed {
 		m.statusWriteMu.RUnlock()
@@ -601,8 +610,8 @@ func (m *MapTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.ContainerR
 		updateSuccess = true
 		break
 	}
-	if !updateSuccess {
-		err := m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, "persistent batch update TaskStatus error up to 3 times")
+	if !updateSuccess && m.cycleActive(serial) {
+		err := m.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, "persistent batch update TaskStatus error up to 3 times")
 		if err != nil {
 			logger.Errorf("jobInstanceId=%d, UpdateNewInstanceStatus failed, err=%s", m.GetJobInstanceInfo().GetJobInstanceId(), err.Error())
 		}
@@ -701,7 +710,10 @@ func (m *MapTaskMaster) batchHandleContainers(workerIdAddr string, reqs []*sched
 			StartReqs:     reqs,
 		}
 
-		future := m.actorCtx.RequestFuture(containerRouterActorPid, req, 15*time.Second)
+		var future *actor.Future
+		if !m.withTaskPersistence(serial, func() { future = m.actorCtx.RequestFuture(containerRouterActorPid, req, 15*time.Second) }) {
+			return
+		}
 		result, err := future.Result()
 		if !m.cycleActive(serial) {
 			return
@@ -1044,89 +1056,96 @@ func (m *MapTaskMaster) CheckProcessor() {
 }
 
 func (m *MapTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
-	var reduceResult *processor.ProcessResult
+	return m.postFinish(jobInstanceId, m.GetSerialNum())
+}
+
+func (m *MapTaskMaster) postFinish(jobInstanceId, serial int64) *processor.ProcessResult {
 	jobCtx := new(jobcontext.JobContext)
-	jobCtx.SetJobId(m.GetJobInstanceInfo().GetJobId())
-	jobCtx.SetJobInstanceId(jobInstanceId)
-	jobCtx.SetJobType(m.GetJobInstanceInfo().GetJobType())
-	jobCtx.SetContent(m.GetJobInstanceInfo().GetContent())
-	jobCtx.SetScheduleTime(m.GetJobInstanceInfo().GetScheduleTime())
-	jobCtx.SetDataTime(m.GetJobInstanceInfo().GetDataTime())
-	jobCtx.SetJobParameters(m.GetJobInstanceInfo().GetParameters())
-	jobCtx.SetInstanceParameters(m.GetJobInstanceInfo().GetInstanceParameters())
-	jobCtx.SetUser(m.GetJobInstanceInfo().GetUser())
-	jobCtx.SetTriggerType(m.GetJobInstanceInfo().GetTriggerType())
-	// convert sync.Map to plain map for jobCtx
-	taskResults := make(map[int64]string)
-	m.taskResultMap.Range(func(k, v any) bool {
-		taskResults[k.(int64)] = v.(string)
-		return true
-	})
-	taskStatuses := make(map[int64]taskstatus.TaskStatus)
-	m.taskStatusMap.Range(func(k, v any) bool {
-		taskStatuses[k.(int64)] = v.(taskstatus.TaskStatus)
-		return true
-	})
-	jobCtx.SetTaskResults(taskResults)
-	jobCtx.SetTaskStatuses(taskStatuses)
-
-	jobName := gjson.Get(jobCtx.Content(), "jobName").String()
-	// Compatible with the existing Java language configuration mechanism
-	if jobCtx.JobType() == "java" {
-		jobName = gjson.Get(jobCtx.Content(), "className").String()
+	var jobProcessor interface{}
+	var found bool
+	if !m.withCycleState(serial, func() {
+		info := m.GetJobInstanceInfo()
+		jobCtx.SetJobId(info.GetJobId())
+		jobCtx.SetJobInstanceId(jobInstanceId)
+		jobCtx.SetJobType(info.GetJobType())
+		jobCtx.SetContent(info.GetContent())
+		jobCtx.SetScheduleTime(info.GetScheduleTime())
+		jobCtx.SetDataTime(info.GetDataTime())
+		jobCtx.SetJobParameters(info.GetParameters())
+		jobCtx.SetInstanceParameters(info.GetInstanceParameters())
+		jobCtx.SetUser(info.GetUser())
+		jobCtx.SetTriggerType(info.GetTriggerType())
+		jobCtx.SetAttempt(info.GetAttempt())
+		jobCtx.SetSerialNum(serial)
+		results := make(map[int64]string)
+		m.taskResultMap.Range(func(k, v any) bool { results[k.(int64)] = v.(string); return true })
+		jobCtx.SetTaskResults(results)
+		statuses := make(map[int64]taskstatus.TaskStatus)
+		m.taskStatusMap.Range(func(k, v any) bool { statuses[k.(int64)] = v.(taskstatus.TaskStatus); return true })
+		jobCtx.SetTaskStatuses(statuses)
+		name := gjson.Get(jobCtx.Content(), "jobName").String()
+		if jobCtx.JobType() == "java" {
+			name = gjson.Get(jobCtx.Content(), "className").String()
+		}
+		jobProcessor, found = masterpool.GetTaskMasterPool().Tasks().Find(name)
+	}) {
+		return nil
 	}
-	jobProcessor, ok := masterpool.GetTaskMasterPool().Tasks().Find(jobName)
+	if !found {
+		return processor.NewProcessResult(processor.WithFailed(), processor.WithResult("job processor not registered for reduce"))
+	}
+	mp, ok := jobProcessor.(processor.MapReduceJobProcessor)
 	if !ok {
-		reduceResult = processor.NewProcessResult()
-		reduceResult.SetFailed()
-		reduceResult.SetResult(fmt.Sprintf("job=%s can not cast to MapReduceJobProcessor, must implement MapReduceJobProcessor interface to support reduce operations", jobName))
-		return reduceResult
+		return nil
 	}
-
-	if mpProcessor, ok := jobProcessor.(processor.MapReduceJobProcessor); ok {
-		runReduceIfFail := mpProcessor.RunReduceIfFail(jobCtx)
-		if m.GetInstanceStatus() == processor.InstanceStatusFailed && !runReduceIfFail {
-			logger.Warnf("jobInstanceId=%d is failed, skip reduce", jobInstanceId)
-			return nil
+	runOnFailure := mp.RunReduceIfFail(jobCtx)
+	workerAddr := m.actorCtx.ActorSystem().Address()
+	if !m.withCycleState(serial, func() {
+		if m.GetInstanceStatus() == processor.InstanceStatusFailed && !runOnFailure {
+			return
 		}
-		reduceTaskName := constants.ReduceTaskName
-		taskProgressCounter, _ := m.taskProgressMap.LoadOrStore(reduceTaskName, common.NewTaskProgressCounter(reduceTaskName))
-		taskProgressCounter.(*common.TaskProgressCounter).IncrementOneTotal()
-		taskProgressCounter.(*common.TaskProgressCounter).IncrementRunning()
-
-		workerAddr := m.actorCtx.ActorSystem().Address()
-		workerProgressCounter, _ := m.workerProgressMap.LoadOrStore(workerAddr, common.NewWorkerProgressCounter(workerAddr))
-		workerProgressCounter.(*common.WorkerProgressCounter).IncrementTotal()
-		workerProgressCounter.(*common.WorkerProgressCounter).IncrementRunning()
-
-		tr := tracer.GetTracerOrDefault()
-		jobCtx = tr.Start(jobCtx)
-		result, err := mpProcessor.Reduce(jobCtx)
-		if err != nil {
-			result = processor.NewProcessResult()
-			result.SetFailed()
-			result.SetResult("reduce exception: " + err.Error())
-		}
-		result = tr.End(jobCtx, result)
-
-		if result.Status() == processor.InstanceStatusSucceed {
-			if val, ok := m.taskProgressMap.Load(reduceTaskName); ok {
-				val.(*common.TaskProgressCounter).IncrementOneSuccess()
-			}
-			if val, ok := m.workerProgressMap.Load(workerAddr); ok {
-				val.(*common.WorkerProgressCounter).IncrementSuccess()
-			}
-		} else {
-			if val, ok := m.taskProgressMap.Load(reduceTaskName); ok {
-				val.(*common.TaskProgressCounter).IncrementOneFailed()
-			}
-			if val, ok := m.workerProgressMap.Load(workerAddr); ok {
-				val.(*common.WorkerProgressCounter).IncrementOneFailed()
-			}
-		}
-		return result
+		taskCounter, _ := m.taskProgressMap.LoadOrStore(constants.ReduceTaskName, common.NewTaskProgressCounter(constants.ReduceTaskName))
+		taskCounter.(*common.TaskProgressCounter).IncrementOneTotal()
+		taskCounter.(*common.TaskProgressCounter).IncrementRunning()
+		workerCounter, _ := m.workerProgressMap.LoadOrStore(workerAddr, common.NewWorkerProgressCounter(workerAddr))
+		workerCounter.(*common.WorkerProgressCounter).IncrementTotal()
+		workerCounter.(*common.WorkerProgressCounter).IncrementRunning()
+	}) {
+		return nil
 	}
-	return reduceResult
+	if m.GetInstanceStatus() == processor.InstanceStatusFailed && !runOnFailure {
+		return nil
+	}
+	tr := tracer.GetTracerOrDefault()
+	jobCtx = tr.Start(jobCtx)
+	if !m.cycleActive(serial) {
+		tr.End(jobCtx, processor.NewProcessResult(processor.WithFailed()))
+		return nil
+	}
+	result, err := mp.Reduce(jobCtx)
+	if err != nil {
+		result = processor.NewProcessResult(processor.WithFailed(), processor.WithResult("reduce exception: "+err.Error()))
+	}
+	result = tr.End(jobCtx, result)
+	if !m.withCycleState(serial, func() {
+		if counter, ok := m.taskProgressMap.Load(constants.ReduceTaskName); ok {
+			if result.Status() == processor.InstanceStatusSucceed {
+				counter.(*common.TaskProgressCounter).IncrementOneSuccess()
+			} else {
+				counter.(*common.TaskProgressCounter).IncrementOneFailed()
+			}
+		}
+		if counter, ok := m.workerProgressMap.Load(workerAddr); ok {
+			if result.Status() == processor.InstanceStatusSucceed {
+				counter.(*common.WorkerProgressCounter).IncrementSuccess()
+			} else {
+				counter.(*common.WorkerProgressCounter).IncrementOneFailed()
+			}
+		}
+	}) {
+		return nil
+	}
+	return result
 }
 
 // RetireStatusWrites fences future status I/O and joins any write already in
@@ -1152,12 +1171,16 @@ func (m *MapTaskMaster) persistTaskStatuses(requests []*schedulerx.ContainerRepo
 	return
 }
 
-func (m *MapTaskMaster) clearPersistedTasks(jobInstanceID int64) (error, bool) {
+func (m *MapTaskMaster) clearPersistedTasks(jobInstanceID int64, serials ...int64) (error, bool) {
+	serial := m.GetSerialNum()
+	if len(serials) > 0 {
+		serial = serials[0]
+	}
 	// Clear may start the next second-job cycle on the same Master. Serialize
 	// its I/O with status writes without permanently retiring that owner.
 	m.statusWriteMu.Lock()
 	defer m.statusWriteMu.Unlock()
-	if m.statusWritesRetired {
+	if m.statusWritesRetired || serial != m.GetSerialNum() {
 		return nil, false
 	}
 	return m.taskPersistence.ClearTasks(jobInstanceID), true
@@ -1262,12 +1285,16 @@ func (m *MapTaskMaster) SyncPullTasks(pageSize int32, workerIdAddr string) []*sc
 }
 
 func (m *MapTaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
+	m.clearCycle(taskMaster, m.GetSerialNum())
+}
+
+func (m *MapTaskMaster) clearCycle(taskMaster taskmaster.TaskMaster, serial int64) bool {
 	m.cycleTransitionMu.Lock()
 	defer m.cycleTransitionMu.Unlock()
 	m.statusWriteMu.Lock()
-	if m.statusWritesRetired {
+	if m.statusWritesRetired || serial != m.GetSerialNum() {
 		m.statusWriteMu.Unlock()
-		return
+		return false
 	}
 	m.cycleClosed = true
 	cancel := m.cycleCancel
@@ -1298,6 +1325,9 @@ func (m *MapTaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
 	m.taskStatusMap = sync.Map{}
 	m.taskProgressMap = sync.Map{}
 	m.workerProgressMap = sync.Map{}
+	if extra, ok := taskMaster.(interface{ resetCycleState() }); ok {
+		extra.resetCycleState()
+	}
 	m.statusWriteMu.Unlock()
 	m.clearTasks(m.GetJobInstanceInfo().GetJobInstanceId())
 	m.statusWriteMu.Lock()
@@ -1310,6 +1340,7 @@ func (m *MapTaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
 	m.cycleCtx = context.Background()
 	m.cycleCancel = func() {}
 	m.statusWriteMu.Unlock()
+	return true
 }
 
 func (m *MapTaskMaster) GetTaskProgressMap() *sync.Map {

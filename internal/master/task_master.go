@@ -190,6 +190,12 @@ func (m *TaskMaster) updateNewInstanceStatus(serialNum int64, jobInstanceId int6
 // BatchUpdateTaskStatus
 // TODO: MapTaskMaster may override this method do really batch process
 func (m *TaskMaster) BatchUpdateTaskStatus(taskMaster taskmaster.TaskMaster, req *schedulerx.ContainerBatchReportTaskStatuesRequest) error {
+	// Legacy batches are accepted in their receipt cycle. Expansion can pause
+	// before a per-task enqueue, so capture identity once, without editing the wire message.
+	serial := req.SerialNum
+	if serial == nil {
+		serial = proto.Int64(m.GetSerialNum())
+	}
 	if !m.acceptsStatusAttempt(req.Attempt) {
 		return nil
 	}
@@ -213,7 +219,7 @@ func (m *TaskMaster) BatchUpdateTaskStatus(taskMaster taskmaster.TaskMaster, req
 		if progress := status.GetProgress(); progress != "" {
 			containerReportTaskStatusReq.Progress = proto.String(progress)
 		}
-		containerReportTaskStatusReq.SerialNum = req.SerialNum
+		containerReportTaskStatusReq.SerialNum = serial
 
 		if err := taskMaster.UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
 			return fmt.Errorf("UpdateTaskStatus failed: %w", err)

@@ -46,12 +46,18 @@ func NewCommonUpdateInstanceStatusHandler(actorContext actor.Context, taskMaster
 }
 
 func (h *commonUpdateInstanceStatusHandler) Handle(serialNum int64, instanceStatus processor.InstanceStatus, result string) error {
+	if !h.currentCycle(serialNum) {
+		return nil
+	}
 	jobInstanceId := h.jobInstanceInfo.GetJobInstanceId()
 
 	if h.taskMaster.GetInstanceStatus() != instanceStatus {
 		h.taskMaster.SetInstanceStatus(instanceStatus)
 		if instanceStatus.IsFinished() {
 			postResult := h.taskMaster.PostFinish(jobInstanceId)
+			if !h.currentCycle(serialNum) {
+				return nil
+			}
 			if postResult != nil {
 				if instanceStatus == processor.InstanceStatusSucceed && postResult.Status() == processor.InstanceStatusFailed {
 					instanceStatus = processor.InstanceStatusFailed

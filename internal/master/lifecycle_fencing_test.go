@@ -472,3 +472,43 @@ func TestParallelRetryConsumesItsActualServerResponse(t *testing.T) {
 		t.Fatal("successful retry did not restore progress")
 	}
 }
+
+type heldDispatchContext struct {
+	retirementActorContext
+	entered, release chan struct{}
+}
+
+func (c heldDispatchContext) RequestFuture(pid *actor.PID, message interface{}, timeout time.Duration) *actor.Future {
+	close(c.entered)
+	<-c.release
+	return c.retirementActorContext.RequestFuture(pid, message, timeout)
+}
+func TestRetirementJoinsLocalDispatchHandoff(t *testing.T) {
+	useRetirementTestDirectory(t)
+	m := newRetirementGrid(t, 0, "push")
+	db := m.taskPersistence
+	db.ClearTasks(1001)
+	defer db.ClearTasks(1001)
+	held := heldDispatchContext{retirementActorContext: retirementActorContext{system: actor.NewActorSystem()}, entered: make(chan struct{}), release: make(chan struct{})}
+	m.actorCtx = held
+	done := make(chan struct{})
+	retired := make(chan struct{})
+	var once sync.Once
+	release := func() { once.Do(func() { close(held.release) }) }
+	req := &schedulerx.MasterStartContainerRequest{JobId: proto.Int64(1), JobInstanceId: proto.Int64(1001), TaskId: proto.Int64(0), TaskName: proto.String("sub"), Attempt: proto.Int32(0), SerialNum: proto.Int64(0)}
+	go func() {
+		defer close(done)
+		m.batchHandleContainers("worker@127.0.0.1:1234", []*schedulerx.MasterStartContainerRequest{req}, false, common.TaskDispatchModePush)
+	}()
+	waitRetirementTest(t, held.entered)
+	defer func() { release(); waitRetirementTest(t, done); waitRetirementTest(t, retired) }()
+	go func() { defer close(retired); m.RetireStatusWrites() }()
+	select {
+	case <-retired:
+		t.Fatal("retirement completed before local dispatch handoff finished")
+	case <-time.After(30 * time.Millisecond):
+	}
+	release()
+	waitRetirementTest(t, retired)
+	waitRetirementTest(t, done)
+}

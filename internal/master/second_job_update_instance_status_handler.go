@@ -204,6 +204,9 @@ func (h *SecondJobUpdateInstanceStatusHandler) getAllWorkers(appGroupId, jobId i
 }
 
 func (h *SecondJobUpdateInstanceStatusHandler) Handle(serialNum int64, instanceStatus processor.InstanceStatus, result string) error {
+	if !h.currentCycle(serialNum) {
+		return nil
+	}
 	cycleId := utils.GetUniqueId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId(), h.taskMaster.GetSerialNum())
 	logger.Infof("cycleId:%s instanceStatus=%d result=%s cycle update status.", cycleId, instanceStatus, result)
 
@@ -262,18 +265,30 @@ func (h *SecondJobUpdateInstanceStatusHandler) triggerNextCycle(cycleId string, 
 			cycleId, h.taskMaster.GetSerialNum(), serialNum, instanceStatus, h.taskMaster.IsKilled())
 		return
 	}
+	cycleStart := h.cycleStartTime
 	postResult := h.taskMaster.PostFinish(h.jobInstanceInfo.GetJobInstanceId())
+	if !h.currentCycle(serialNum) {
+		return
+	}
 	if postResult != nil {
 		logger.Infof("cycleId:%s cycle post status=%d, result=%s.", cycleId, postResult.Status(), postResult.Result())
 	}
 
 	logger.Infof("cycleId:%s cycle end.", cycleId)
 
-	h.setHistory(h.taskMaster.GetSerialNum(), h.cycleStartTime, instanceStatus)
+	h.setHistory(serialNum, cycleStart, instanceStatus)
 
 	if !h.taskMaster.IsKilled() {
 		// TODO: 先清理这次迭代的资源，未来可以优化不需要每次清理
-		h.taskMaster.Clear(h.taskMaster)
+		if fenced, ok := h.taskMaster.(interface {
+			clearCycle(taskmaster.TaskMaster, int64) bool
+		}); ok {
+			if !fenced.clearCycle(h.taskMaster, serialNum) {
+				return
+			}
+		} else {
+			h.taskMaster.Clear(h.taskMaster)
+		}
 
 		// The current node is offline
 		// FIXME implement it
