@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2023 Alibaba Group Holding Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package master
 
 import (
@@ -19,6 +35,11 @@ import (
 	"testing"
 	"time"
 )
+
+// Master tests use one explicit process-wide config, as the SDK singleton is immutable.
+func init() {
+	config.NewWorkerConfig(config.WithDisableMapMasterFailover(), config.WithMapMasterStatusCheckInterval(time.Millisecond))
+}
 
 func TestRetiredWorkerShutdownPreservesReplacement(t *testing.T) {
 	config.NewWorkerConfig(config.WithDisableMapMasterFailover())
@@ -377,11 +398,77 @@ func TestRetiredParallelRetryCannotResetServerTasks(t *testing.T) {
 			if !ok || req.GetJobInstanceId() != 98765 {
 				continue
 			}
-			actorcomm.WorkerBatchUpdateTaskStatusRespMsgSender() <- &schedulerx.WorkerBatchUpdateTaskStatusResponse{Success: proto.Bool(false)}
+			actorcomm.WorkerReportTaskListStatusRespMsgSender() <- &schedulerx.WorkerReportTaskListStatusResponse{Success: proto.Bool(false)}
 			waitRetirementTest(t, done)
 			t.Fatal("retired Parallel Master sent a server task reset")
 		case <-timer.C:
 			t.Fatal("retired retry did not exit")
 		}
+	}
+}
+
+func TestBlockedMapProducerStopsWhenCycleClears(t *testing.T) {
+	useRetirementTestDirectory(t)
+	m := newRetirementGrid(t, 0)
+	m.GetJobInstanceInfo().SetAllWorkers(nil)
+	q := batch.NewReqQueue(0)
+	m.taskBlockingQueue = q
+	done := make(chan struct{})
+	go func() { defer close(done); m.Map(nil, [][]byte{[]byte("old")}, "sub") }()
+	deadline := time.Now().Add(time.Second)
+	for m.taskIdGenerator.Load() < 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("Map did not enter")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	defer func() { q.RetrieveRequests(1); waitRetirementTest(t, done) }()
+	m.Clear(m)
+	select {
+	case <-done:
+	case <-time.After(30 * time.Millisecond):
+		t.Fatal("Clear left old Map producer blocked on its full queue")
+	}
+}
+
+func TestParallelRetryConsumesItsActualServerResponse(t *testing.T) {
+	base, _ := attemptTestMaster(0)
+	base.GetJobInstanceInfo().SetJobInstanceId(98766)
+	base.inited = true
+	m := &ParallelTaskMaster{MapTaskMaster: &MapTaskMaster{TaskMaster: base}}
+	counter := common.NewTaskProgressCounter("sub")
+	counter.IncrementOneSuccess()
+	m.taskProgressMap.Store("sub", counter)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		m.RetryTasks([]*schedulerx.RetryTaskEntity{{TaskId: proto.Int64(1), TaskName: proto.String("sub"), OldStatus: proto.Int32(int32(taskstatus.TaskStatusSucceed))}})
+	}()
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	sent := false
+	for !sent {
+		select {
+		case msg := <-actorcomm.TaskMasterMsgReceiver():
+			if w, ok := msg.(*actorcomm.SchedulerWrappedMsg); ok {
+				if req, ok := w.Msg.(*schedulerx.WorkerReportTaskListStatusRequest); ok && req.GetJobInstanceId() == 98766 {
+					sent = true
+				}
+			}
+		case <-deadline.C:
+			t.Fatal("retry reset was not sent")
+		}
+	}
+	actorcomm.WorkerReportTaskListStatusRespMsgSender() <- &schedulerx.WorkerReportTaskListStatusResponse{Success: proto.Bool(true)}
+	select {
+	case <-done:
+	case <-time.After(30 * time.Millisecond):
+		// Release the legacy incorrect response wait so the failing test owns no goroutine.
+		actorcomm.WorkerBatchUpdateTaskStatusRespMsgSender() <- &schedulerx.WorkerBatchUpdateTaskStatusResponse{Success: proto.Bool(false)}
+		waitRetirementTest(t, done)
+		t.Fatal("retry ignored the response type emitted by taskActor")
+	}
+	if counter.GetSuccess() != 0 {
+		t.Fatal("successful retry did not restore progress")
 	}
 }

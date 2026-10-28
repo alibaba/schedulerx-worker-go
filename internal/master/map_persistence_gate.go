@@ -1,8 +1,17 @@
 /*
  * Copyright (c) 2023 Alibaba Group Holding Ltd.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
- * You may obtain a copy at http://www.apache.org/licenses/LICENSE-2.0
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package master
@@ -11,6 +20,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
 	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
+	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 )
 
@@ -67,4 +77,31 @@ func (m *MapTaskMaster) filterDispatchRequests(reqs []*schedulerx.MasterStartCon
 		}
 	}
 	return accepted
+}
+
+// State commits are short and exclude callbacks, queues and I/O. In particular,
+// revalidate after an I/O wait before updating a possibly reused cycle's maps.
+func (m *MapTaskMaster) withCycleState(serial int64, operation func()) bool {
+	m.statusWriteMu.Lock()
+	defer m.statusWriteMu.Unlock()
+	if m.statusWritesRetired || m.cycleClosed || serial != m.GetSerialNum() {
+		return false
+	}
+	operation()
+	return true
+}
+func (m *MapTaskMaster) acceptsMapContext(ctx *jobcontext.JobContext) bool {
+	if !m.cycleActive(m.GetSerialNum()) {
+		return false
+	}
+	// Remote legacy Map messages have no generation fields; local contexts do.
+	return ctx == nil || (ctx.Attempt() == m.jobInstanceInfo.GetAttempt() && ctx.SerialNum() == m.GetSerialNum())
+}
+func (m *MapTaskMaster) cycleDone() <-chan struct{} {
+	m.statusWriteMu.RLock()
+	defer m.statusWriteMu.RUnlock()
+	if m.cycleCtx == nil {
+		return nil
+	}
+	return m.cycleCtx.Done()
 }

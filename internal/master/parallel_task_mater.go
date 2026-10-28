@@ -88,6 +88,9 @@ func NewParallelTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx act
 }
 
 func (m *ParallelTaskMaster) Map(jobCtx *jobcontext.JobContext, taskList [][]byte, taskName string) (bool, error) {
+	if !m.acceptsMapContext(jobCtx) {
+		return false, nil
+	}
 	if len(taskList) == 0 {
 		logger.Warnf("map taskList is empty, taskName=%s", taskName)
 		return false, nil
@@ -127,13 +130,13 @@ func (m *ParallelTaskMaster) RetryTasks(taskEntities []*schedulerx.RetryTaskEnti
 	}
 
 	serial := m.GetSerialNum()
-	var response *schedulerx.WorkerBatchUpdateTaskStatusResponse
+	var response *schedulerx.WorkerReportTaskListStatusResponse
 	admitted := m.withTaskPersistence(serial, func() {
 		actorcomm.TaskMasterMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{Msg: req}
 		timer := time.NewTimer(30 * time.Second)
 		defer timer.Stop()
 		select {
-		case response = <-actorcomm.WorkerBatchUpdateTaskStatusRespMsgSender():
+		case response = <-actorcomm.WorkerReportTaskListStatusRespMsgSender():
 		case <-timer.C:
 		}
 	})

@@ -78,6 +78,9 @@ func (m *GridTaskMaster) doMetricsCheck() {
 }
 
 func (m *GridTaskMaster) Map(jobCtx *jobcontext.JobContext, taskList [][]byte, taskName string) (bool, error) {
+	if !m.acceptsMapContext(jobCtx) {
+		return false, nil
+	}
 	if len(taskList) == 0 {
 		errMsg := fmt.Sprintf("map taskList is empty, taskName:%v", taskName)
 		logger.Warnf(errMsg)
