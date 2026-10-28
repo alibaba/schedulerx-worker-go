@@ -31,6 +31,7 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/processor/taskstatus"
 	"github.com/asynkron/protoactor-go/actor"
 	"google.golang.org/protobuf/proto"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func TestRetiredWorkerShutdownPreservesReplacement(t *testing.T) {
 	oldBase, _ := attemptTestMaster(0)
 	oldBase.aliveCheckWorkerSet = utils.NewConcurrentSet[string]()
 	oldBase.jobInstanceInfo.SetAllWorkers([]string{"worker@127.0.0.1:1234"})
-	old := &MapTaskMaster{TaskMaster: oldBase, taskPersistence: db, taskDispatchReqHandler: &batch.TaskPushReqHandler{BaseTaskDispatchReqHandler: &batch.BaseTaskDispatchReqHandler{}}}
+	old := &MapTaskMaster{TaskMaster: oldBase, taskPersistence: db, taskDispatchReqHandler: batch.NewTaskPushReqHandler(id, 1, 1, 1, batch.NewReqQueue(1), 1)}
 	currentBase, _ := attemptTestMaster(1)
 	current := &MapTaskMaster{TaskMaster: currentBase, taskPersistence: db}
 	pool := masterpool.NewTaskMasterPool(tasks.GetTaskMap())
@@ -511,4 +512,74 @@ func TestRetirementJoinsLocalDispatchHandoff(t *testing.T) {
 	release()
 	waitRetirementTest(t, retired)
 	waitRetirementTest(t, done)
+}
+
+func TestTaskMasterStateAccessIsConcurrentSafe(t *testing.T) {
+	m, _ := attemptTestMaster(0)
+	var wg sync.WaitGroup
+	ready := make(chan struct{})
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-ready
+		for i := 0; i < 1000; i++ {
+			m.SetInstanceStatus(processor.InstanceStatusRunning)
+			m.Init()
+			m.KillInstance("test")
+			runtime.Gosched()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-ready
+		for i := 0; i < 1000; i++ {
+			m.GetInstanceStatus()
+			m.IsKilled()
+			m.IsInited()
+			runtime.Gosched()
+		}
+	}()
+	close(ready)
+	wg.Wait()
+}
+
+func TestLifecycleCancelsBlockedLocalHandoff(t *testing.T) {
+	for _, action := range []string{"retire", "clear"} {
+		t.Run(action, func(t *testing.T) {
+			useRetirementTestDirectory(t)
+			m := newRetirementGrid(t, 0)
+			m.jobInstanceInfo.SetAllWorkers(nil)
+			sent := make(chan bool, 1)
+			go func() { sent <- m.sendCycleMessage(0, make(chan interface{}), "blocked", false) }()
+			deadline := time.After(time.Second)
+			for m.statusWriteMu.TryLock() {
+				m.statusWriteMu.Unlock()
+				select {
+				case <-deadline:
+					t.Fatal("send did not enter gate")
+				default:
+					runtime.Gosched()
+				}
+			}
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				if action == "retire" {
+					m.RetireStatusWrites()
+				} else {
+					m.Clear(m)
+				}
+			}()
+			waitRetirementTest(t, done)
+			select {
+			case got := <-sent:
+				if got {
+					t.Fatal("blocked send succeeded without receiver")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("blocked send was not canceled")
+			}
+			m.Stop()
+		})
+	}
 }

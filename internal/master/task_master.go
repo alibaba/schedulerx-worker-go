@@ -39,9 +39,9 @@ var _ taskmaster.TaskMaster = (*TaskMaster)(nil)
 
 type TaskMaster struct {
 	actorContext             actor.Context                `json:"actorContext,omitempty"`
-	instanceStatus           processor.InstanceStatus     `json:"instanceStatus,omitempty"` // WARNING: not concurrency-safe
-	taskStatusMap            sync.Map                     `json:"taskStatusMap"`            // key:string, val:TaskStatus
-	taskIdGenerator          *atomic.Int64                `json:"taskIdGenerator"`          // WARNING: not concurrency-safe
+	instanceStatus           processor.InstanceStatus     `json:"instanceStatus,omitempty"`
+	taskStatusMap            sync.Map                     `json:"taskStatusMap"`   // key:string, val:TaskStatus
+	taskIdGenerator          *atomic.Int64                `json:"taskIdGenerator"` // WARNING: not concurrency-safe
 	localWorkIdAddr          string                       `json:"localWorkIdAddr,omitempty"`
 	localContainerRouterPath string                       `json:"localContainerRouterPath,omitempty"`
 	localTaskRouterPath      string                       `json:"localTaskRouterPath,omitempty"`
@@ -56,7 +56,8 @@ type TaskMaster struct {
 	serialNum                *atomic.Int64                `json:"serialNum,omitempty"`          // 秒级任务使用，当前循环次数
 	existInvalidWorker       bool                         `json:"existInvalidWorker,omitempty"` // 是否存在失效Worker WARNING: not concurrency-safe
 
-	lock sync.RWMutex
+	lock    sync.RWMutex
+	stateMu sync.RWMutex
 }
 
 func NewTaskMaster(actorCtx actor.Context, jobInstanceInfo *common.JobInstanceInfo, statusHandler UpdateInstanceStatusHandler) *TaskMaster {
@@ -78,11 +79,9 @@ func NewTaskMaster(actorCtx actor.Context, jobInstanceInfo *common.JobInstanceIn
 }
 
 func (m *TaskMaster) Init() {
-	//	m.lock.Lock()
-	//	defer m.lock.Unlock()
-	if !m.inited {
-		m.inited = true
-	}
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	m.inited = true
 }
 
 func (m *TaskMaster) GetActorContext() actor.Context {
@@ -229,9 +228,9 @@ func (m *TaskMaster) BatchUpdateTaskStatus(taskMaster taskmaster.TaskMaster, req
 }
 
 func (m *TaskMaster) KillInstance(reason string) error {
-	//	m.lock.Lock()
+	m.stateMu.Lock()
 	m.killed = true
-	//	m.lock.Unlock()
+	m.stateMu.Unlock()
 
 	GetTimeScheduler().remove(m.jobInstanceInfo.GetJobInstanceId())
 	return nil
@@ -276,7 +275,7 @@ func (m *TaskMaster) Stop() {
 func (m *TaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
 	m.taskStatusMap = sync.Map{} // Clear the sync.Map by reassigning it to an empty sync.Map
 	m.taskIdGenerator.Store(0)
-	m.instanceStatus = processor.InstanceStatusRunning
+	m.SetInstanceStatus(processor.InstanceStatusRunning)
 	m.aliveCheckWorkerSet.Clear()
 
 	taskMaster.DestroyContainerPool()
@@ -287,20 +286,20 @@ func (m *TaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
 }
 
 func (m *TaskMaster) GetInstanceStatus() processor.InstanceStatus {
-	//	m.lock.RLock()
-	//	defer m.lock.RUnlock()
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
 	return m.instanceStatus
 }
 
 func (m *TaskMaster) SetInstanceStatus(instanceStatus processor.InstanceStatus) {
-	//	m.lock.Lock()
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 	m.instanceStatus = instanceStatus
-	//	m.lock.Unlock()
 }
 
 func (m *TaskMaster) IsKilled() bool {
-	//	m.lock.RLock()
-	//	defer m.lock.RUnlock()
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
 	return m.killed
 }
 
@@ -314,8 +313,8 @@ func (m *TaskMaster) GetAliveCheckWorkerSet() *utils.ConcurrentSet[string] {
 }
 
 func (m *TaskMaster) IsInited() bool {
-	//	m.lock.RLock()
-	//	defer m.lock.RUnlock()
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
 	return m.inited
 }
 

@@ -88,6 +88,7 @@ func NewParallelTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx act
 }
 
 func (m *ParallelTaskMaster) Map(jobCtx *jobcontext.JobContext, taskList [][]byte, taskName string) (bool, error) {
+	jobCtx = m.mapContextAtReceipt(jobCtx)
 	if !m.acceptsMapContext(jobCtx) {
 		return false, nil
 	}
@@ -97,7 +98,10 @@ func (m *ParallelTaskMaster) Map(jobCtx *jobcontext.JobContext, taskList [][]byt
 	}
 
 	logger.Infof("map taskList, jobInstanceId=%v, taskName=%v, taskList size=%v", m.jobInstanceInfo.GetJobInstanceId(), taskName, len(taskList))
-	counter := m.taskCounter.Add(int64(len(taskList)))
+	var counter int64
+	if !m.withCycleState(jobCtx.SerialNum(), func() { counter = m.taskCounter.Add(int64(len(taskList))) }) {
+		return false, nil
+	}
 	defaultTaskMaxSize := constants.ParallelTaskListSizeMaxDefault
 	if discovery.GetGroupManager().IsAdvancedVersion(m.jobInstanceInfo.GetGroupId()) {
 		defaultTaskMaxSize = constants.ParallelTaskListSizeMaxAdvanced
@@ -152,36 +156,42 @@ func (m *ParallelTaskMaster) RetryTasks(taskEntities []*schedulerx.RetryTaskEnti
 	if resp.GetSuccess() {
 		if !m.IsInited() {
 			// If it has not been initialized, re-initialize it.
-			m.startBatchHandler()
-			m.init()
-			for _, taskEntity := range taskEntities {
-				taskName := taskEntity.GetTaskName()
-				if counter, ok := m.taskProgressMap.LoadOrStore(taskName, common.NewTaskProgressCounter(taskName)); ok {
-					counter.(*common.TaskProgressCounter).IncrementOneTotal()
-				}
+			if err := m.startBatchHandler(serial); err != nil {
+				return
 			}
+			m.init(serial)
+			m.withCycleState(serial, func() {
+				for _, taskEntity := range taskEntities {
+					taskName := taskEntity.GetTaskName()
+					if counter, ok := m.taskProgressMap.LoadOrStore(taskName, common.NewTaskProgressCounter(taskName)); ok {
+						counter.(*common.TaskProgressCounter).IncrementOneTotal()
+					}
+				}
+			})
 		} else {
-			for _, taskEntity := range taskEntities {
-				taskName := taskEntity.GetTaskName()
-				workerAddr := taskEntity.GetWorkerAddr()
-				oldStatus := taskEntity.GetOldStatus()
-				if taskProgressCounter, ok := m.taskProgressMap.Load(taskName); ok {
-					switch taskstatus.TaskStatus(oldStatus) {
-					case taskstatus.TaskStatusSucceed:
-						taskProgressCounter.(*common.TaskProgressCounter).DecrementSuccess()
-					case taskstatus.TaskStatusFailed:
-						taskProgressCounter.(*common.TaskProgressCounter).DecrementFailed()
+			m.withCycleState(serial, func() {
+				for _, taskEntity := range taskEntities {
+					taskName := taskEntity.GetTaskName()
+					workerAddr := taskEntity.GetWorkerAddr()
+					oldStatus := taskEntity.GetOldStatus()
+					if taskProgressCounter, ok := m.taskProgressMap.Load(taskName); ok {
+						switch taskstatus.TaskStatus(oldStatus) {
+						case taskstatus.TaskStatusSucceed:
+							taskProgressCounter.(*common.TaskProgressCounter).DecrementSuccess()
+						case taskstatus.TaskStatusFailed:
+							taskProgressCounter.(*common.TaskProgressCounter).DecrementFailed()
+						}
+					}
+					if workerProgressCounter, ok := m.workerProgressMap.Load(workerAddr); ok {
+						switch taskstatus.TaskStatus(oldStatus) {
+						case taskstatus.TaskStatusSucceed:
+							workerProgressCounter.(*common.WorkerProgressCounter).DecrementSuccess()
+						case taskstatus.TaskStatusFailed:
+							workerProgressCounter.(*common.WorkerProgressCounter).DecrementFailed()
+						}
 					}
 				}
-				if workerProgressCounter, ok := m.workerProgressMap.Load(workerAddr); ok {
-					switch taskstatus.TaskStatus(oldStatus) {
-					case taskstatus.TaskStatusSucceed:
-						workerProgressCounter.(*common.WorkerProgressCounter).DecrementSuccess()
-					case taskstatus.TaskStatusFailed:
-						workerProgressCounter.(*common.WorkerProgressCounter).DecrementFailed()
-					}
-				}
-			}
+			})
 		}
 	} else {
 		logger.Errorf("RetryTasks in ParallelTaskMaster timeout, jobInstanceId=%d, errMsg=%s", m.jobInstanceInfo.GetJobInstanceId(), resp.GetMessage())

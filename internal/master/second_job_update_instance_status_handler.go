@@ -97,6 +97,7 @@ func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 
 		intervalTimes++
 		if intervalTimes > 10 {
+			serial := h.taskMaster.GetSerialNum()
 			progress, err := h.getJobInstanceProgress()
 			if err != nil {
 				logger.Errorf("report status failed due to getJobInstanceProgress failed, err=%v, jobIdAndInstanceId=%s.", err, jobIdAndInstanceId)
@@ -110,8 +111,14 @@ func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 			}
 
 			// FIXME ServerDiscovery serverDiscovery = ServerDiscoveryFactory.GetDiscovery(jobInstanceInfo.GetGroupId());
-			actorcomm.TaskMasterMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
-				Msg: req,
+			if fenced, ok := h.taskMaster.(interface {
+				sendCycleMessage(int64, chan interface{}, interface{}, bool) bool
+			}); ok {
+				if !fenced.sendCycleMessage(serial, actorcomm.TaskMasterMsgReceiver(), &actorcomm.SchedulerWrappedMsg{Msg: req}, false) {
+					continue
+				}
+			} else {
+				actorcomm.TaskMasterMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{Msg: req}
 			}
 
 			intervalTimes = 0

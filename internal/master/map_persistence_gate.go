@@ -30,7 +30,7 @@ import (
 func (m *MapTaskMaster) withTaskPersistence(serial int64, operation func()) bool {
 	m.statusWriteMu.RLock()
 	defer m.statusWriteMu.RUnlock()
-	if m.statusWritesRetired || m.cycleClosed || serial != m.GetSerialNum() {
+	if m.retirementStarted() || m.statusWritesRetired || m.cycleClosed || serial != m.GetSerialNum() {
 		return false
 	}
 	operation()
@@ -44,7 +44,7 @@ func (m *MapTaskMaster) acceptsTaskGeneration(attempt *int32, serial *int64) boo
 func (m *MapTaskMaster) cycleActive(serial int64) bool {
 	m.statusWriteMu.RLock()
 	defer m.statusWriteMu.RUnlock()
-	return !m.statusWritesRetired && !m.cycleClosed && serial == m.GetSerialNum()
+	return !m.retirementStarted() && !m.statusWritesRetired && !m.cycleClosed && serial == m.GetSerialNum()
 }
 
 func (m *MapTaskMaster) pullPersistedTasks(serial, id int64, size int32) (tasks []*common.TaskInfo, err error, admitted bool) {
@@ -84,7 +84,7 @@ func (m *MapTaskMaster) filterDispatchRequests(reqs []*schedulerx.MasterStartCon
 func (m *MapTaskMaster) withCycleState(serial int64, operation func()) bool {
 	m.statusWriteMu.Lock()
 	defer m.statusWriteMu.Unlock()
-	if m.statusWritesRetired || m.cycleClosed || serial != m.GetSerialNum() {
+	if m.retirementStarted() || m.statusWritesRetired || m.cycleClosed || serial != m.GetSerialNum() {
 		return false
 	}
 	operation()
@@ -104,4 +104,49 @@ func (m *MapTaskMaster) cycleDone() <-chan struct{} {
 		return nil
 	}
 	return m.cycleCtx.Done()
+}
+
+// retirementStarted is an immutable cancellation signal. Close it before joining
+// I/O so a blocked local channel handoff cannot deadlock retirement.
+func (m *MapTaskMaster) retirementStarted() bool {
+	select {
+	case <-m.retireCh:
+		return true
+	default:
+		return false
+	}
+}
+
+// Only the enqueue is joined. Never wait for a remote response or run a user
+// hook here. A closed cycle may send its deliberate container cleanup.
+func (m *MapTaskMaster) sendCycleMessage(serial int64, target chan interface{}, msg interface{}, allowClosed bool) bool {
+	m.statusWriteMu.RLock()
+	defer m.statusWriteMu.RUnlock()
+	if m.retirementStarted() || m.statusWritesRetired || serial != m.GetSerialNum() || (m.cycleClosed && !allowClosed) {
+		return false
+	}
+	var done <-chan struct{}
+	if !allowClosed && m.cycleCtx != nil {
+		done = m.cycleCtx.Done()
+	}
+	select {
+	case <-m.retireCh:
+		return false
+	case <-done:
+		return false
+	case target <- msg:
+		return true
+	}
+}
+
+// Legacy remote Map has no epoch. Bind its local continuation to the cycle at
+// receipt, so wrapper quota and base Map cannot independently choose epochs.
+func (m *MapTaskMaster) mapContextAtReceipt(ctx *jobcontext.JobContext) *jobcontext.JobContext {
+	if ctx != nil {
+		return ctx
+	}
+	ctx = new(jobcontext.JobContext)
+	ctx.SetSerialNum(m.GetSerialNum())
+	ctx.SetAttempt(m.jobInstanceInfo.GetAttempt())
+	return ctx
 }

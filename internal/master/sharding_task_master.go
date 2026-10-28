@@ -51,8 +51,9 @@ func NewShardingTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx act
 }
 
 func (m *ShardingTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceInfo) error {
+	serial := m.GetSerialNum()
 	if err := m.parseShardingParameters(jobInstanceInfo); err != nil {
-		m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, err.Error())
+		m.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, err.Error())
 		return err
 	}
 	shardingNum := len(m.parameters)
@@ -61,13 +62,13 @@ func (m *ShardingTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceI
 		tokens := strings.Split(param, "=")
 		if len(tokens) != 2 {
 			errMsg := "invalid sharding parameters, should be like 0=a,1=b,2=c"
-			m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, errMsg)
+			m.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, errMsg)
 			return errors.New(errMsg)
 		}
 		shardingId, err := strconv.Atoi(tokens[0])
 		if err != nil {
 			errMsg := fmt.Sprintf("invalid sharding parameters, shardingId is not digit, shardingId=%s", tokens[0])
-			m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, errMsg)
+			m.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, errMsg)
 			return errors.New(errMsg)
 		}
 		taskName := tokens[0] // taskName == shardingId
@@ -75,7 +76,7 @@ func (m *ShardingTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceI
 
 		if _, ok := m.taskProgressMap.Load(taskName); ok {
 			errMsg := fmt.Sprintf("shardingId=%s is duplicated", taskName)
-			m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, errMsg)
+			m.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, errMsg)
 			return fmt.Errorf(errMsg)
 		}
 
@@ -83,23 +84,26 @@ func (m *ShardingTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceI
 		taskObj, err := json.Marshal(task)
 		if err != nil {
 			errMsg := fmt.Sprintf("json marshal task failed, err=%s, task=%+v", err.Error(), task)
-			m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, errMsg)
+			m.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, errMsg)
 			return fmt.Errorf(errMsg)
 		}
 		req, err := m.convert2StartContainerRequest(jobInstanceInfo, int64(shardingId), taskName, taskObj, false)
 		if err != nil {
 			errMsg := fmt.Sprintf("convert2StartContainerRequest failed, err=%s, jobInstanceInfo=%+v", err.Error(), jobInstanceInfo)
-			m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, errMsg)
+			m.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, errMsg)
 			return fmt.Errorf(errMsg)
 		}
+		req.SerialNum = proto.Int64(serial)
 		req.ShardingNum = proto.Int32(int32(shardingNum))
 
 		startContainerRequests = append(startContainerRequests, req)
 	}
 
-	m.startBatchHandler()
+	if err := m.startBatchHandler(serial); err != nil {
+		return err
+	}
 	m.BatchDispatchTasks(startContainerRequests, "")
-	m.init()
+	m.init(serial)
 
 	return nil
 }
@@ -148,6 +152,7 @@ func (m *ShardingTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.Conta
 
 func (m *ShardingTaskMaster) BatchHandlePulledProgress(masterStartContainerRequests []*schedulerx.MasterStartContainerRequest,
 	remoteWorker string) (map[string][]*schedulerx.MasterStartContainerRequest, map[string][]*schedulerx.MasterStartContainerRequest) {
+	serial := m.GetSerialNum()
 	m.statusWriteMu.RLock()
 	defer m.statusWriteMu.RUnlock()
 	var (
@@ -164,7 +169,7 @@ func (m *ShardingTaskMaster) BatchHandlePulledProgress(masterStartContainerReque
 		}
 		if workerIdAddr == "" {
 			m.statusWriteMu.RUnlock()
-			m.updateNewInstanceStatus(m.GetSerialNum(), m.GetJobInstanceInfo().GetJobInstanceId(), processor.InstanceStatusFailed, "all worker is down!")
+			m.updateNewInstanceStatus(serial, m.GetJobInstanceInfo().GetJobInstanceId(), processor.InstanceStatusFailed, "all worker is down!")
 			m.statusWriteMu.RLock()
 			break
 		}

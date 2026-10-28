@@ -78,6 +78,7 @@ func (m *GridTaskMaster) doMetricsCheck() {
 }
 
 func (m *GridTaskMaster) Map(jobCtx *jobcontext.JobContext, taskList [][]byte, taskName string) (bool, error) {
+	jobCtx = m.mapContextAtReceipt(jobCtx)
 	if !m.acceptsMapContext(jobCtx) {
 		return false, nil
 	}
@@ -87,7 +88,10 @@ func (m *GridTaskMaster) Map(jobCtx *jobcontext.JobContext, taskList [][]byte, t
 		return false, fmt.Errorf(fmt.Sprintf("map taskList is empty, taskName:%v", taskName))
 	}
 	logger.Infof("map taskList, jobInstanceId=%v, taskName:%v, taskList size:%v", m.GetJobInstanceInfo().GetJobInstanceId(), taskName, len(taskList))
-	counter := m.taskCounter.Add(int64(len(taskList)))
+	var counter int64
+	if !m.withCycleState(jobCtx.SerialNum(), func() { counter = m.taskCounter.Add(int64(len(taskList))) }) {
+		return false, nil
+	}
 	if m.xAttrs != nil && m.xAttrs.GetTaskDispatchMode() == string(common.TaskDispatchModePull) && counter > constants.PullModeTaskSizeMax {
 		logger.Errorf("jobInstanceId=%v, pullModel, task counter=%v, beyond %v", m.GetJobInstanceInfo().GetJobInstanceId(), counter, constants.PullModeTaskSizeMax)
 		return false, fmt.Errorf(fmt.Sprintf("task size of pullModel can't beyond %d", constants.PullModeTaskSizeMax))

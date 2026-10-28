@@ -87,15 +87,31 @@ func (h *commonUpdateInstanceStatusHandler) Handle(serialNum int64, instanceStat
 					logger.Warnf("report job instance status with at-least-once-delivery failed, due to GetJobInstanceProgress is empty")
 				}
 
-				actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
-					Msg: req,
+				if fenced, ok := h.taskMaster.(interface {
+					sendCycleMessage(int64, chan interface{}, interface{}, bool) bool
+				}); ok {
+					if !fenced.sendCycleMessage(serialNum, actorcomm.AtLeastOnceDeliveryMsgReceiver(), &actorcomm.SchedulerWrappedMsg{Msg: req}, false) {
+						return nil
+					}
+				} else {
+					actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{Msg: req}
 				}
 				logger.Infof("report jobInstance=%d, status=%d to AtLeastDeliveryRoutingActor", jobInstanceId, instanceStatus)
 			}
 
 			// destroy containers and taskMaster
-			h.taskMaster.DestroyContainerPool()
-			h.taskMaster.Stop()
+			if fenced, ok := h.taskMaster.(interface {
+				destroyCycleContainers(int64)
+				stopCycle(int64) bool
+			}); ok {
+				fenced.destroyCycleContainers(serialNum)
+				if !fenced.stopCycle(serialNum) {
+					return nil
+				}
+			} else {
+				h.taskMaster.DestroyContainerPool()
+				h.taskMaster.Stop()
+			}
 			h.masterPool.RemoveIfOwner(jobInstanceId, h.taskMaster)
 			uniqueId := utils.GetUniqueIdWithoutTaskId(h.jobInstanceInfo.GetJobId(), jobInstanceId)
 			logger.Infof("uniqueId: %s is finished, remove from MasterPool.", uniqueId)
