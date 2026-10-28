@@ -57,18 +57,14 @@ func (s *TimeScheduler) init() {
 func (s *TimeScheduler) timeScan() {
 	for {
 		now := time.Now().UnixMilli()
-		for !s.timeQueue.IsEmpty() {
-			planEntry := s.timeQueue.Peek()
-			if planEntry != nil && planEntry.ScheduleTimeStamp() <= now {
-				// 1. pop this from timeQueue
-				planEntry = s.timeQueue.Pop()
-				logger.Infof("%s time ready", planEntry)
-
-				// 2. start this time based job
-				s.submitPlan(planEntry)
-			} else {
+		for {
+			planEntry := s.timeQueue.PopDue(now)
+			if planEntry == nil {
 				break
 			}
+			logger.Infof("%s time ready", planEntry)
+			// PopDue released the queue lock before invoking the task lifecycle.
+			s.submitPlan(planEntry)
 		}
 
 		time.Sleep(100 * time.Millisecond)
