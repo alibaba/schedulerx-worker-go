@@ -134,17 +134,20 @@ func (m *ParallelTaskMaster) RetryTasks(taskEntities []*schedulerx.RetryTaskEnti
 	}
 
 	serial := m.GetSerialNum()
+	if !m.sendCycleMessage(serial, actorcomm.TaskMasterMsgReceiver(), &actorcomm.SchedulerWrappedMsg{Msg: req}, false) {
+		return
+	}
+	// Join only the local enqueue above. A remote response must never hold the
+	// lifecycle gate and delay retirement or the next cycle. Keep receiving the
+	// response as before, then revalidate before committing any local state.
 	var response *schedulerx.WorkerReportTaskListStatusResponse
-	admitted := m.withTaskPersistence(serial, func() {
-		actorcomm.TaskMasterMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{Msg: req}
-		timer := time.NewTimer(30 * time.Second)
-		defer timer.Stop()
-		select {
-		case response = <-actorcomm.WorkerReportTaskListStatusRespMsgSender():
-		case <-timer.C:
-		}
-	})
-	if !admitted || !m.cycleActive(serial) {
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+	select {
+	case response = <-actorcomm.WorkerReportTaskListStatusRespMsgSender():
+	case <-timer.C:
+	}
+	if !m.cycleActive(serial) {
 		return
 	}
 	if response == nil {
