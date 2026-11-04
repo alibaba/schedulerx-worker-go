@@ -64,6 +64,8 @@ func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem, stopChan
 			return
 		}
 		for groupId, appGroupId := range groupManager.GroupId2AppGroupIdMap() {
+			// Start the grace window before the first attempt, including failures.
+			utils.GetHealthTimeHolder().InitGroupServerHeartbeatTime(groupId)
 			appKey := groupManager.GetAppKeyByGroupId(groupId)
 			jobInstanceIds := taskMasterPool.GetInstanceIds(appGroupId)
 			heartbeatReq := genHeartBeatRequest(groupId, appGroupId, jobInstanceIds, actorSystemPort, online, appKey)
@@ -72,6 +74,7 @@ func KeepHeartbeat(ctx context.Context, actorSystem *actor.ActorSystem, stopChan
 				continue
 			}
 			utils.GetHealthTimeHolder().ResetServerHeartbeatTime()
+			utils.GetHealthTimeHolder().ResetGroupServerHeartbeatTime(groupId)
 			logger.Debugf("Write heartbeat to remote succeed, groupId=%s", groupId)
 		}
 	}
