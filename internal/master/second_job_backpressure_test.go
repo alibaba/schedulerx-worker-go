@@ -127,7 +127,7 @@ func TestPendingProgressIsDeliveredOrReleasedOnStop(t *testing.T) {
 	}
 	msg := &actorcomm.SchedulerWrappedMsg{Msg: "pending snapshot"}
 	done := make(chan bool, 1)
-	go func() { done <- h.sendProgressWhileCheckingHealth(msg, make(chan time.Time)) }()
+	go func() { done <- h.sendProgressWhileCheckingHealth(m.GetSerialNum(), msg, make(chan time.Time)) }()
 	if os.Getenv(child) == "stop" {
 		h.stop()
 		select {
@@ -154,7 +154,7 @@ func TestPendingProgressIsDeliveredOrReleasedOnStop(t *testing.T) {
 	}
 	found := 0
 	for len(queue) > 0 {
-		if <-queue == msg {
+		if wrapped, ok := (<-queue).(*actorcomm.SchedulerWrappedMsg); ok && wrapped.Msg == msg.Msg {
 			found++
 		}
 	}

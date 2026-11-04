@@ -104,6 +104,7 @@ func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 
 		intervalTimes++
 		if intervalTimes > 10 {
+			serial := h.taskMaster.GetSerialNum()
 			progress, err := h.getJobInstanceProgress()
 			if err != nil {
 				logger.Errorf("report status failed due to getJobInstanceProgress failed, err=%v, jobIdAndInstanceId=%s.", err, jobIdAndInstanceId)
@@ -117,21 +118,35 @@ func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 			}
 
 			// FIXME ServerDiscovery serverDiscovery = ServerDiscoveryFactory.GetDiscovery(jobInstanceInfo.GetGroupId());
-			if !h.sendProgressWhileCheckingHealth(&actorcomm.SchedulerWrappedMsg{Msg: req}, ticker.C) {
-				return
+			delivered := h.sendProgressWhileCheckingHealth(serial, &actorcomm.SchedulerWrappedMsg{Msg: req}, ticker.C)
+			if !delivered {
+				// A serial transition can reject this snapshot without stopping
+				// the owner-level reporter or discarding its accumulated counts.
+				select {
+				case <-h.stopCh:
+					return
+				default:
+				}
 			}
 
 			intervalTimes = 0
-			h.triggerTimes = 0
-			h.triggerCus = 0
+			if delivered {
+				h.triggerTimes = 0
+				h.triggerCus = 0
+			}
 		}
 	}
 }
 
 // A congested progress queue must not disable the same reporter's health check.
-// Keep this progress report pending until delivery, shutdown or a health kill;
-// no extra sender goroutine or unbounded backlog is created.
-func (h *SecondJobUpdateInstanceStatusHandler) sendProgressWhileCheckingHealth(msg *actorcomm.SchedulerWrappedMsg, ticks <-chan time.Time) bool {
+// Keep one snapshot pending, but join only a non-waiting enqueue to the owner's
+// lifecycle gate. Waiting for capacity or health ticks never holds that gate.
+func (h *SecondJobUpdateInstanceStatusHandler) sendProgressWhileCheckingHealth(serial int64, msg *actorcomm.SchedulerWrappedMsg, ticks <-chan time.Time) bool {
+	var outbound interface{} = msg
+	if origin, ok := h.taskMaster.(interface{ withMessageOrigin(interface{}) interface{} }); ok {
+		outbound = origin.withMessageOrigin(msg)
+	}
+	fenced, hasGate := h.taskMaster.(interface{ withCycleControl(int64, func()) bool })
 	for {
 		if h.taskMaster.IsKilled() {
 			return false
@@ -141,15 +156,39 @@ func (h *SecondJobUpdateInstanceStatusHandler) sendProgressWhileCheckingHealth(m
 			return false
 		default:
 		}
+		sent := false
+		enqueue := func() {
+			select {
+			case actorcomm.TaskMasterMsgReceiver() <- outbound:
+				sent = true
+			default:
+			}
+		}
+		if hasGate {
+			// Control admission permits current-owner idle-cycle reports while
+			// rejecting retired owners and the serial captured by an old snapshot.
+			if !fenced.withCycleControl(serial, enqueue) {
+				return false
+			}
+		} else {
+			// Older masters have no owner gate. Keep the existing send contract;
+			// full retirement isolation is supplied by lifecycle-aware masters.
+			enqueue()
+		}
+		if sent {
+			return true
+		}
+		retry := time.NewTimer(10 * time.Millisecond)
 		select {
 		case <-h.stopCh:
+			retry.Stop()
 			return false
-		case actorcomm.TaskMasterMsgReceiver() <- msg:
-			return true
 		case <-ticks:
+			retry.Stop()
 			if err := h.need2KillSelf(); err != nil {
 				logger.Errorf("report status health check failed while progress queue is full, jobInstanceId=%d, err=%v", h.jobInstanceInfo.GetJobInstanceId(), err)
 			}
+		case <-retry.C:
 		}
 	}
 }
