@@ -45,9 +45,22 @@ func (q *TimeQueue) Add(timePlanEntry *TimePlanEntry) {
 }
 
 func (q *TimeQueue) Remove(jobInstanceId int64) {
+	q.remove(jobInstanceId, nil)
+}
+
+// RemoveIfOwner cancels only plans belonging to the specified handler. An old
+// Kill must never cancel the replacement owner's plan for the same instance.
+func (q *TimeQueue) RemoveIfOwner(jobInstanceID int64, owner *SecondJobUpdateInstanceStatusHandler) {
+	if owner == nil {
+		return
+	}
+	q.remove(jobInstanceID, owner)
+}
+
+func (q *TimeQueue) remove(jobInstanceID int64, owner *SecondJobUpdateInstanceStatusHandler) {
 	q.timeQueue.RemoveBy(func(item utils.ComparatorItem) bool {
 		planEntry := item.(*TimePlanEntry)
-		if jobInstanceId == planEntry.jobInstanceId {
+		if jobInstanceID == planEntry.jobInstanceId && (owner == nil || planEntry.handler == owner) {
 			// found item matched, remove from timeSet
 			q.timeSet.Remove(planEntry.UniqueID())
 			logger.Infof("planEntry=%s removed, event.getTriggerType() != null", planEntry)

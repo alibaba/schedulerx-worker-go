@@ -47,7 +47,10 @@ func (t *TimePlanEntry) Handler() *SecondJobUpdateInstanceStatusHandler {
 }
 
 func (t *TimePlanEntry) UniqueID() string {
-	return fmt.Sprintf("%d@%d", t.jobInstanceId, t.scheduleTimeStamp)
+	// A replacement can schedule the same instance at the same millisecond.
+	// The handler is immutable for a plan's lifetime, and its live reference
+	// prevents pointer reuse while an old plan or Kill can still refer to it.
+	return fmt.Sprintf("%d@%d@%p", t.jobInstanceId, t.scheduleTimeStamp, t.handler)
 }
 
 func (t *TimePlanEntry) String() string {

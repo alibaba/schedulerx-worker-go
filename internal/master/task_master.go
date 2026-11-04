@@ -248,7 +248,11 @@ func (m *TaskMaster) KillInstance(reason string) error {
 	m.killed = true
 	//	m.lock.Unlock()
 
-	GetTimeScheduler().remove(m.jobInstanceInfo.GetJobInstanceId())
+	// Only a Second handler owns time plans. Its identity remains the same even
+	// when this Kill resumes after another master has replaced it in the pool.
+	if owner, ok := m.statusHandler.(*SecondJobUpdateInstanceStatusHandler); ok {
+		GetTimeScheduler().removeIfOwner(m.jobInstanceInfo.GetJobInstanceId(), owner)
+	}
 	return nil
 }
 
