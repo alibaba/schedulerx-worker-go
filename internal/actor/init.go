@@ -37,9 +37,12 @@ func InitActors(actorSystem *actor.ActorSystem) error {
 		}()
 	}
 
+	// Local routing and remoting (including actor restarts) must share fences
+	// because they use the same process-wide container pool.
+	admission := new(containerAdmissionState)
 	// init containerActor
 	containerRouterPid, err := actorSystem.Root.SpawnNamed(actor.PropsFromProducer(func() actor.Actor {
-		return newContainerActor()
+		return newContainerActorWithState(admission)
 	}), actorcomm.ContainerRouterPidId)
 	if err != nil {
 		return err
@@ -121,7 +124,7 @@ func InitActors(actorSystem *actor.ActorSystem) error {
 	// will it overwrite what we have registered ourselves.
 
 	remoting.Register(actorcomm.ContainerRouterPidId, actor.PropsFromProducer(func() actor.Actor {
-		return newContainerActor()
+		return newContainerActorWithState(admission)
 	}))
 	remoting.Start()
 

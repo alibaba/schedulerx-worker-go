@@ -41,6 +41,7 @@ func NewBatchTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.
 	batchTaskMaster.taskPersistence = persistence.GetH2FilePersistence()
 	batchTaskMaster.taskPersistence.InitTable()
 
+	batchTaskMaster.bindBatchHandlers(batchTaskMaster)
 	return batchTaskMaster
 }
 

@@ -83,12 +83,16 @@ func (rcvr *MapJobProcessor) handleMapTask(jobCtx *jobcontext.JobContext, taskMa
 	)
 
 	if taskMaster != nil {
+		serial := taskMaster.GetSerialNum()
+		if jobCtx != nil {
+			serial = jobCtx.SerialNum()
+		}
 		if mapTaskMaster, ok := taskMaster.(taskmaster.MapTaskMaster); !ok {
 			resp = &schedulerx.WorkerMapTaskResponse{
 				Success: proto.Bool(false),
 				Message: proto.String("TaskMaster is not MapTaskMaster"),
 			}
-			if err := taskMaster.UpdateNewInstanceStatus(taskMaster.GetSerialNum(), processor.InstanceStatusFailed, "TaskMaster is not MapTaskMaster"); err != nil {
+			if err := taskMaster.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, "TaskMaster is not MapTaskMaster"); err != nil {
 				errMsg := fmt.Sprintf("jobInstanceId=%d, UpdateNewInstanceStatus failed, err=%s", jobInstanceId, err.Error())
 				logger.Errorf(errMsg)
 				return &schedulerx.WorkerMapTaskResponse{
@@ -101,7 +105,7 @@ func (rcvr *MapJobProcessor) handleMapTask(jobCtx *jobcontext.JobContext, taskMa
 			overload, err := mapTaskMaster.Map(jobCtx, request.GetTaskBody(), request.GetTaskName())
 			if err != nil {
 				logger.Errorf("jobInstanceId=%s map failed, err=%s", err.Error())
-				if err := taskMaster.UpdateNewInstanceStatus(taskMaster.GetSerialNum(), processor.InstanceStatusFailed, err.Error()); err != nil {
+				if err := taskMaster.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, err.Error()); err != nil {
 					errMsg := fmt.Sprintf("jobInstanceId=%d, UpdateNewInstanceStatus failed, err=%s", jobInstanceId, err.Error())
 					logger.Errorf(errMsg)
 					return &schedulerx.WorkerMapTaskResponse{

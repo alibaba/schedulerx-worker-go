@@ -25,6 +25,7 @@ import (
 	"github.com/panjf2000/ants/v2"
 	"go.uber.org/atomic"
 
+	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
 	"github.com/alibaba/schedulerx-worker-go/internal/masterpool"
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
@@ -56,7 +57,9 @@ type BaseReqHandler struct {
 	defaultSleepMs          time.Duration
 	emptySleepMs            time.Duration
 	latestRequest           interface{}
+	latestRequestLock       sync.RWMutex
 	taskMasterPool          *masterpool.TaskMasterPool
+	owner                   taskmaster.MapTaskMaster
 
 	// onging runnable number, every subclass implement process method should decrement this value when a job was done.
 	activeRunnableNum *atomic.Int64
@@ -84,20 +87,37 @@ func NewBaseReqHandler(jobInstanceId int64, coreBatchThreadNum int, maxBatchThre
 }
 
 func (rcvr *BaseReqHandler) AsyncHandleReqs(h ReqHandler) []interface{} {
+	// Cover the dequeue-to-processing handoff too: idle admission cleanup must
+	// not observe an empty queue before its batch is counted as active.
+	rcvr.activeRunnableNum.Inc()
 	reqs := rcvr.reqsQueue.RetrieveRequests(rcvr.batchSize)
 	if len(reqs) > 0 {
-		rcvr.activeRunnableNum.Inc()
 		h.Process(rcvr.jobInstanceId, reqs, "")
+	} else {
+		rcvr.activeRunnableNum.Dec()
 	}
 	return reqs
 }
 
 func (rcvr *BaseReqHandler) SyncHandleReqs(h ReqHandler, pageSize int32, workerIdAddr string) []interface{} {
-	reqs := rcvr.reqsQueue.RetrieveRequests(pageSize)
+	return rcvr.SyncHandleReqsWithAdmission(h, pageSize, workerIdAddr, func(take func()) bool { take(); return true })
+}
+
+// SyncHandleReqsWithAdmission covers only dequeue/accounting. Process may perform persistence I/O
+// and must run outside the owner's short cycle-state lock.
+func (rcvr *BaseReqHandler) SyncHandleReqsWithAdmission(h ReqHandler, pageSize int32, workerIDAddr string, admit func(func()) bool) []interface{} {
+	var reqs []interface{}
+	if !admit(func() {
+		reqs = rcvr.reqsQueue.RetrieveRequests(pageSize)
+		if len(reqs) > 0 {
+			rcvr.activeRunnableNum.Inc()
+		}
+	}) {
+		return nil
+	}
 	if len(reqs) > 0 {
-		rcvr.activeRunnableNum.Inc()
-		h.Process(rcvr.jobInstanceId, reqs, workerIdAddr)
-		rcvr.activeRunnableNum.Dec()
+		defer rcvr.activeRunnableNum.Dec()
+		h.Process(rcvr.jobInstanceId, reqs, workerIDAddr)
 	}
 	return reqs
 }
@@ -106,10 +126,11 @@ func (rcvr *BaseReqHandler) Clear() {
 	if rcvr.reqsQueue != nil {
 		rcvr.reqsQueue.Clear()
 	}
-	rcvr.activeRunnableNum.Store(0)
 }
 
 func (rcvr *BaseReqHandler) GetLatestRequest() interface{} {
+	rcvr.latestRequestLock.RLock()
+	defer rcvr.latestRequestLock.RUnlock()
 	return rcvr.latestRequest
 }
 
@@ -176,16 +197,18 @@ func (rcvr *BaseReqHandler) Stop() {
 	if rcvr.reqsQueue != nil {
 		rcvr.reqsQueue.Clear()
 	}
-	if rcvr.activeRunnableNum != nil {
-		rcvr.activeRunnableNum.Store(0)
-	}
 }
 
 func (rcvr *BaseReqHandler) SubmitRequest(request interface{}) {
+	rcvr.latestRequestLock.Lock()
 	rcvr.latestRequest = request
+	rcvr.latestRequestLock.Unlock()
 	rcvr.reqsQueue.SubmitRequest(request)
 }
 
 func (rcvr *BaseReqHandler) GetTaskMasterPool() *masterpool.TaskMasterPool {
 	return rcvr.taskMasterPool
 }
+
+// BindTaskMaster is construction-only, before any handler goroutine starts.
+func (rcvr *BaseReqHandler) BindTaskMaster(owner taskmaster.MapTaskMaster) { rcvr.owner = owner }

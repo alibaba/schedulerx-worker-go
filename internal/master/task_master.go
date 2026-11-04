@@ -39,9 +39,9 @@ var _ taskmaster.TaskMaster = (*TaskMaster)(nil)
 
 type TaskMaster struct {
 	actorContext             actor.Context                `json:"actorContext,omitempty"`
-	instanceStatus           processor.InstanceStatus     `json:"instanceStatus,omitempty"` // WARNING: not concurrency-safe
-	taskStatusMap            sync.Map                     `json:"taskStatusMap"`            // key:string, val:TaskStatus
-	taskIdGenerator          *atomic.Int64                `json:"taskIdGenerator"`          // WARNING: not concurrency-safe
+	instanceStatus           processor.InstanceStatus     `json:"instanceStatus,omitempty"`
+	taskStatusMap            sync.Map                     `json:"taskStatusMap"`   // key:string, val:TaskStatus
+	taskIdGenerator          *atomic.Int64                `json:"taskIdGenerator"` // WARNING: not concurrency-safe
 	localWorkIdAddr          string                       `json:"localWorkIdAddr,omitempty"`
 	localContainerRouterPath string                       `json:"localContainerRouterPath,omitempty"`
 	localTaskRouterPath      string                       `json:"localTaskRouterPath,omitempty"`
@@ -49,14 +49,15 @@ type TaskMaster struct {
 	jobInstanceInfo          *common.JobInstanceInfo      `json:"jobInstanceInfo,omitempty"`
 	jobInstanceProgress      string                       `json:"jobInstanceProgress,omitempty"`
 	statusHandler            UpdateInstanceStatusHandler  `json:"statusHandler,omitempty"`
-	killed                   bool                         `json:"killed,omitempty"`              // WARNING: not concurrency-safe
-	inited                   bool                         `json:"inited,omitempty"`              // WARNING: not concurrency-safe
+	killed                   bool                         `json:"killed,omitempty"`
+	inited                   bool                         `json:"inited,omitempty"`
 	aliveCheckWorkerSet      *utils.ConcurrentSet[string] `json:"aliveCheckWorkerSet,omitempty"` // string
 	serverDiscovery          discovery.ServiceDiscover    `json:"serverDiscovery"`
 	serialNum                *atomic.Int64                `json:"serialNum,omitempty"`          // 秒级任务使用，当前循环次数
 	existInvalidWorker       bool                         `json:"existInvalidWorker,omitempty"` // 是否存在失效Worker WARNING: not concurrency-safe
 
-	lock sync.RWMutex
+	lock    sync.RWMutex
+	stateMu sync.RWMutex
 }
 
 func NewTaskMaster(actorCtx actor.Context, jobInstanceInfo *common.JobInstanceInfo, statusHandler UpdateInstanceStatusHandler) *TaskMaster {
@@ -78,15 +79,19 @@ func NewTaskMaster(actorCtx actor.Context, jobInstanceInfo *common.JobInstanceIn
 }
 
 func (m *TaskMaster) Init() {
-	//	m.lock.Lock()
-	//	defer m.lock.Unlock()
-	if !m.inited {
-		m.inited = true
-	}
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	m.inited = true
 }
 
 func (m *TaskMaster) GetActorContext() actor.Context {
 	return m.actorContext
+}
+
+// StatusOwner identifies the shared lifecycle beneath Grid/Batch/Map wrappers.
+// Status handlers may retain an inner Master while the pool stores its wrapper.
+func (m *TaskMaster) StatusOwner() taskmaster.TaskMaster {
+	return m
 }
 
 func (m *TaskMaster) GetLocalWorkerIdAddr() string {
@@ -118,7 +123,21 @@ func (m *TaskMaster) IsJobInstanceFinished() bool {
 	return isFinished
 }
 
+// Missing metadata retains legacy behavior. Explicit zero is an attempt, not
+// an absent field; new peers must match the current instance before any update.
+func (m *TaskMaster) acceptsStatusAttempt(attempt *int32) bool {
+	if attempt == nil || *attempt == m.jobInstanceInfo.GetAttempt() {
+		return true
+	}
+	logger.Infof("ignore task status from another attempt, jobId=%d jobInstanceId=%d currentAttempt=%d reportedAttempt=%d",
+		m.jobInstanceInfo.GetJobId(), m.jobInstanceInfo.GetJobInstanceId(), m.jobInstanceInfo.GetAttempt(), *attempt)
+	return false
+}
+
 func (m *TaskMaster) UpdateTaskStatus(req *schedulerx.ContainerReportTaskStatusRequest) error {
+	if !m.acceptsStatusAttempt(req.Attempt) {
+		return nil
+	}
 	var (
 		jobId         = req.GetJobId()
 		jobInstanceId = req.GetJobInstanceId()
@@ -170,6 +189,15 @@ func (m *TaskMaster) updateNewInstanceStatus(serialNum int64, jobInstanceId int6
 // BatchUpdateTaskStatus
 // TODO: MapTaskMaster may override this method do really batch process
 func (m *TaskMaster) BatchUpdateTaskStatus(taskMaster taskmaster.TaskMaster, req *schedulerx.ContainerBatchReportTaskStatuesRequest) error {
+	// Legacy batches are accepted in their receipt cycle. Expansion can pause
+	// before a per-task enqueue, so capture identity once, without editing the wire message.
+	serial := req.SerialNum
+	if serial == nil {
+		serial = proto.Int64(m.GetSerialNum())
+	}
+	if !m.acceptsStatusAttempt(req.Attempt) {
+		return nil
+	}
 	for _, status := range req.GetTaskStatues() {
 		containerReportTaskStatusReq := &schedulerx.ContainerReportTaskStatusRequest{
 			JobId:         proto.Int64(req.GetJobId()),
@@ -178,6 +206,7 @@ func (m *TaskMaster) BatchUpdateTaskStatus(taskMaster taskmaster.TaskMaster, req
 			WorkerAddr:    proto.String(req.GetWorkerAddr()),
 			WorkerId:      proto.String(req.GetWorkerId()),
 			Status:        proto.Int32(status.GetStatus()),
+			Attempt:       req.Attempt,
 		}
 
 		if result := status.GetResult(); result != "" {
@@ -189,40 +218,19 @@ func (m *TaskMaster) BatchUpdateTaskStatus(taskMaster taskmaster.TaskMaster, req
 		if progress := status.GetProgress(); progress != "" {
 			containerReportTaskStatusReq.Progress = proto.String(progress)
 		}
-		if serialNum := req.GetSerialNum(); serialNum != 0 {
-			containerReportTaskStatusReq.SerialNum = proto.Int64(serialNum)
-		}
+		containerReportTaskStatusReq.SerialNum = serial
 
-		switch taskMaster.(type) {
-		case *BroadcastTaskMaster:
-			if err := taskMaster.UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
-				return fmt.Errorf("BroadcastTaskMaster UpdateTaskStatus failed, err=%s ", err.Error())
-			}
-		case *BatchTaskMaster:
-			if err := taskMaster.UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
-				return fmt.Errorf("BatchTaskMaster UpdateTaskStatus failed, err=%s ", err.Error())
-			}
-		case *GridTaskMaster:
-			if err := taskMaster.UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
-				return fmt.Errorf("GridTaskMaster UpdateTaskStatus failed, err=%s ", err.Error())
-			}
-		case *MapTaskMaster:
-			if err := taskMaster.UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
-				return fmt.Errorf("MapTaskMaster UpdateTaskStatus failed, err=%s ", err.Error())
-			}
-		default:
-			if err := m.UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
-				return fmt.Errorf("UpdateTaskStatus failed, err=%s ", err.Error())
-			}
+		if err := taskMaster.UpdateTaskStatus(containerReportTaskStatusReq); err != nil {
+			return fmt.Errorf("UpdateTaskStatus failed: %w", err)
 		}
 	}
 	return nil
 }
 
 func (m *TaskMaster) KillInstance(reason string) error {
-	//	m.lock.Lock()
+	m.stateMu.Lock()
 	m.killed = true
-	//	m.lock.Unlock()
+	m.stateMu.Unlock()
 
 	GetTimeScheduler().remove(m.jobInstanceInfo.GetJobInstanceId())
 	return nil
@@ -267,7 +275,7 @@ func (m *TaskMaster) Stop() {
 func (m *TaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
 	m.taskStatusMap = sync.Map{} // Clear the sync.Map by reassigning it to an empty sync.Map
 	m.taskIdGenerator.Store(0)
-	m.instanceStatus = processor.InstanceStatusRunning
+	m.SetInstanceStatus(processor.InstanceStatusRunning)
 	m.aliveCheckWorkerSet.Clear()
 
 	taskMaster.DestroyContainerPool()
@@ -278,20 +286,20 @@ func (m *TaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
 }
 
 func (m *TaskMaster) GetInstanceStatus() processor.InstanceStatus {
-	//	m.lock.RLock()
-	//	defer m.lock.RUnlock()
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
 	return m.instanceStatus
 }
 
 func (m *TaskMaster) SetInstanceStatus(instanceStatus processor.InstanceStatus) {
-	//	m.lock.Lock()
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 	m.instanceStatus = instanceStatus
-	//	m.lock.Unlock()
 }
 
 func (m *TaskMaster) IsKilled() bool {
-	//	m.lock.RLock()
-	//	defer m.lock.RUnlock()
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
 	return m.killed
 }
 
@@ -305,8 +313,8 @@ func (m *TaskMaster) GetAliveCheckWorkerSet() *utils.ConcurrentSet[string] {
 }
 
 func (m *TaskMaster) IsInited() bool {
-	//	m.lock.RLock()
-	//	defer m.lock.RUnlock()
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
 	return m.inited
 }
 

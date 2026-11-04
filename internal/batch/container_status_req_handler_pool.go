@@ -79,3 +79,36 @@ func (p *ContainerStatusReqHandlerPool) SubmitReq(jobInstanceId int64, req *sche
 func (p *ContainerStatusReqHandlerPool) GetHandlers() *sync.Map {
 	return &p.handlers
 }
+
+// Get returns the current generation's handler. Containers bind this identity
+// before execution instead of looking up a possibly newer handler at completion.
+func (p *ContainerStatusReqHandlerPool) Get(jobInstanceID int64) *ContainerStatusReqHandler {
+	handler, ok := p.handlers.Load(jobInstanceID)
+	if !ok {
+		return nil
+	}
+	return handler.(*ContainerStatusReqHandler)
+}
+
+func (p *ContainerStatusReqHandlerPool) SubmitReqTo(jobInstanceID int64, expected *ContainerStatusReqHandler, req *schedulerx.ContainerReportTaskStatusRequest) bool {
+	if expected == nil || p.Get(jobInstanceID) != expected {
+		return false
+	}
+	expected.stopChLock.Lock()
+	stopped := expected.stopBatchRetrieveCh
+	expected.stopChLock.Unlock()
+	if stopped == nil {
+		return false
+	}
+	// Stop may race with this send. Never strand a submitter behind a stopped
+	// retriever. Any racing enqueue remains in the old bounded queue, not the new one.
+	select {
+	case <-stopped:
+		return false
+	case expected.reqsQueue.requests <- req:
+		expected.latestRequestLock.Lock()
+		expected.latestRequest = req
+		expected.latestRequestLock.Unlock()
+		return true
+	}
+}
