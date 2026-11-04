@@ -14,6 +14,7 @@
 package master
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +26,61 @@ import (
 	"github.com/asynkron/protoactor-go/actor"
 	"google.golang.org/protobuf/proto"
 )
+
+// Owner cancellation must share the scanner's atomic heap/membership boundary.
+// A replacement's future plan stays queued while the old owner's due plans are
+// added, canceled, and claimed concurrently.
+func TestTimePlanOwnerCancellationWithConcurrentClaims(t *testing.T) {
+	queue := NewTimeQueue()
+	oldOwner := new(SecondJobUpdateInstanceStatusHandler)
+	newOwner := new(SecondJobUpdateInstanceStatusHandler)
+	const instanceID int64 = 900005
+	replacement := NewTimePlanEntry(instanceID, 100, newOwner)
+	queue.Add(replacement)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < 256; i++ {
+			queue.Add(NewTimePlanEntry(instanceID, 0, oldOwner))
+			queue.RemoveIfOwner(instanceID, oldOwner)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < 256; i++ {
+			if plan := queue.PopDue(0); plan != nil && plan.Handler() != oldOwner {
+				t.Error("scanner claimed replacement before its deadline")
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < 256; i++ {
+			queue.Add(replacement)
+		}
+	}()
+	close(start)
+	wg.Wait()
+	queue.RemoveIfOwner(instanceID, oldOwner)
+	queue.Add(replacement)
+	if queue.Size() != 1 || queue.Peek() != replacement {
+		t.Fatal("old owner cancellation lost or duplicated the replacement plan")
+	}
+	if queue.PopDue(99) != nil || queue.PopDue(100) != replacement || queue.PopDue(100) != nil {
+		t.Fatal("replacement must be claimed exactly once at its deadline")
+	}
+	// An old membership entry must not prevent this identity being requeued.
+	queue.Add(replacement)
+	if queue.PopDue(100) != replacement || !queue.IsEmpty() {
+		t.Fatal("owner cancellation left stale queue membership")
+	}
+}
 
 func TestTimePlanOwnersCanShareDeadline(t *testing.T) {
 	queue := NewTimeQueue()

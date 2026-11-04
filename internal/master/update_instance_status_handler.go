@@ -47,3 +47,22 @@ func (h *baseUpdateInstanceStatusHandler) Handle(serialNum int64, newStatus proc
 	// TODO
 	return nil
 }
+
+// A user PostFinish hook can outlive the pool entry or a second-job cycle.
+// A current stopped owner may still report its deliberate shutdown; identity,
+// rather than a blanket retirement check, distinguishes that from stale work.
+func (h *baseUpdateInstanceStatusHandler) currentCycle(serial int64) bool {
+	if serial != h.taskMaster.GetSerialNum() {
+		return false
+	}
+	if h.masterPool == nil {
+		return true
+	}
+	current := h.masterPool.Get(h.jobInstanceInfo.GetJobInstanceId())
+	if current == nil || current == h.taskMaster {
+		return true
+	}
+	left, lok := current.(interface{ StatusOwner() taskmaster.TaskMaster })
+	right, rok := h.taskMaster.(interface{ StatusOwner() taskmaster.TaskMaster })
+	return lok && rok && left.StatusOwner() == right.StatusOwner()
+}

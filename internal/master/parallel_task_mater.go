@@ -83,17 +83,25 @@ func NewParallelTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx act
 
 	// Used to support secondary subtask retries to prevent taskId duplication
 	parallelTaskMaster.taskIdGenerator = atomic.NewInt64(time.Now().Unix())
+	parallelTaskMaster.bindBatchHandlers(parallelTaskMaster)
 	return parallelTaskMaster
 }
 
 func (m *ParallelTaskMaster) Map(jobCtx *jobcontext.JobContext, taskList [][]byte, taskName string) (bool, error) {
+	jobCtx = m.mapContextAtReceipt(jobCtx)
+	if !m.acceptsMapContext(jobCtx) {
+		return false, nil
+	}
 	if len(taskList) == 0 {
 		logger.Warnf("map taskList is empty, taskName=%s", taskName)
 		return false, nil
 	}
 
 	logger.Infof("map taskList, jobInstanceId=%v, taskName=%v, taskList size=%v", m.jobInstanceInfo.GetJobInstanceId(), taskName, len(taskList))
-	counter := m.taskCounter.Add(int64(len(taskList)))
+	var counter int64
+	if !m.withCycleState(jobCtx.SerialNum(), func() { counter = m.taskCounter.Add(int64(len(taskList))) }) {
+		return false, nil
+	}
 	defaultTaskMaxSize := constants.ParallelTaskListSizeMaxDefault
 	if discovery.GetGroupManager().IsAdvancedVersion(m.jobInstanceInfo.GetGroupId()) {
 		defaultTaskMaxSize = constants.ParallelTaskListSizeMaxAdvanced
@@ -125,28 +133,50 @@ func (m *ParallelTaskMaster) RetryTasks(taskEntities []*schedulerx.RetryTaskEnti
 		Status:        proto.Int32(int32(taskstatus.TaskStatusInit)),
 	}
 
-	// Send to server by master
-	actorcomm.TaskMasterMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
-		Msg: req,
+	serial := m.GetSerialNum()
+	// Keep replies tied to this invocation even across timeout, replacement, or
+	// overlapping retries in the same cycle. A late reply fits without a waiter.
+	reply := make(chan interface{}, 1)
+	if !m.sendCycleMessage(serial, actorcomm.TaskMasterMsgReceiver(), &actorcomm.SchedulerWrappedMsg{Msg: req, Reply: reply}, false) {
+		return
 	}
-
-	// Wait 30 seconds
+	// Join only the local enqueue above. A remote response must never hold the
+	// lifecycle gate and delay retirement or the next cycle. Keep receiving the
+	// request's response, then revalidate before committing any local state.
+	var response *schedulerx.WorkerReportTaskListStatusResponse
 	timer := time.NewTimer(30 * time.Second)
 	defer timer.Stop()
 	select {
-	case resp := <-actorcomm.WorkerBatchUpdateTaskStatusRespMsgSender():
-		if resp.GetSuccess() {
-			if !m.IsInited() {
-				// If it has not been initialized, re-initialize it.
-				m.startBatchHandler()
-				m.init()
+	case result := <-reply:
+		response = result.(*schedulerx.WorkerReportTaskListStatusResponse)
+	case <-timer.C:
+	}
+	if !m.cycleActive(serial) {
+		return
+	}
+	if response == nil {
+		logger.Errorf("RetryTasks server timeout, jobInstanceId=%d", m.jobInstanceInfo.GetJobInstanceId())
+		return
+	}
+	resp := response
+
+	if resp.GetSuccess() {
+		if !m.IsInited() {
+			// If it has not been initialized, re-initialize it.
+			if err := m.startBatchHandler(serial); err != nil {
+				return
+			}
+			m.init(serial)
+			m.withCycleState(serial, func() {
 				for _, taskEntity := range taskEntities {
 					taskName := taskEntity.GetTaskName()
 					if counter, ok := m.taskProgressMap.LoadOrStore(taskName, common.NewTaskProgressCounter(taskName)); ok {
 						counter.(*common.TaskProgressCounter).IncrementOneTotal()
 					}
 				}
-			} else {
+			})
+		} else {
+			m.withCycleState(serial, func() {
 				for _, taskEntity := range taskEntities {
 					taskName := taskEntity.GetTaskName()
 					workerAddr := taskEntity.GetWorkerAddr()
@@ -168,12 +198,10 @@ func (m *ParallelTaskMaster) RetryTasks(taskEntities []*schedulerx.RetryTaskEnti
 						}
 					}
 				}
-			}
-		} else {
-			logger.Errorf("RetryTasks in ParallelTaskMaster timeout, jobInstanceId=%d, errMsg=%s", m.jobInstanceInfo.GetJobInstanceId(), resp.GetMessage())
-			//TODO 发送失败应该尝试另一个server
+			})
 		}
-	case <-timer.C:
-		logger.Errorf("RetryTasks in ParallelTaskMaster timeout, jobInstanceId=%d", m.jobInstanceInfo.GetJobInstanceId())
+	} else {
+		logger.Errorf("RetryTasks in ParallelTaskMaster timeout, jobInstanceId=%d, errMsg=%s", m.jobInstanceInfo.GetJobInstanceId(), resp.GetMessage())
+		//TODO 发送失败应该尝试另一个server
 	}
 }
