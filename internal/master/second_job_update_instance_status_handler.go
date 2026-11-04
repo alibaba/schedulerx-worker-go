@@ -95,6 +95,13 @@ func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 		case <-ticker.C:
 		}
 
+		if err := h.need2KillSelf(); err != nil {
+			logger.Errorf("report status error, err=%v, jobIdAndInstanceId=%s.", err, jobIdAndInstanceId)
+		}
+		if h.taskMaster.IsKilled() {
+			return
+		}
+
 		intervalTimes++
 		if intervalTimes > 10 {
 			progress, err := h.getJobInstanceProgress()
@@ -110,17 +117,39 @@ func (h *SecondJobUpdateInstanceStatusHandler) reportJobInstanceProgress() {
 			}
 
 			// FIXME ServerDiscovery serverDiscovery = ServerDiscoveryFactory.GetDiscovery(jobInstanceInfo.GetGroupId());
-			actorcomm.TaskMasterMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
-				Msg: req,
+			if !h.sendProgressWhileCheckingHealth(&actorcomm.SchedulerWrappedMsg{Msg: req}, ticker.C) {
+				return
 			}
 
 			intervalTimes = 0
 			h.triggerTimes = 0
 			h.triggerCus = 0
 		}
+	}
+}
 
-		if err := h.need2KillSelf(); err != nil {
-			logger.Errorf("report status error, err=%v, jobIdAndInstanceId=%s.", err, jobIdAndInstanceId)
+// A congested progress queue must not disable the same reporter's health check.
+// Keep this progress report pending until delivery, shutdown or a health kill;
+// no extra sender goroutine or unbounded backlog is created.
+func (h *SecondJobUpdateInstanceStatusHandler) sendProgressWhileCheckingHealth(msg *actorcomm.SchedulerWrappedMsg, ticks <-chan time.Time) bool {
+	for {
+		if h.taskMaster.IsKilled() {
+			return false
+		}
+		select {
+		case <-h.stopCh:
+			return false
+		default:
+		}
+		select {
+		case <-h.stopCh:
+			return false
+		case actorcomm.TaskMasterMsgReceiver() <- msg:
+			return true
+		case <-ticks:
+			if err := h.need2KillSelf(); err != nil {
+				logger.Errorf("report status health check failed while progress queue is full, jobInstanceId=%d, err=%v", h.jobInstanceInfo.GetJobInstanceId(), err)
+			}
 		}
 	}
 }
