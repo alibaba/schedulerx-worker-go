@@ -18,6 +18,7 @@ package master
 
 import (
 	"github.com/alibaba/schedulerx-worker-go/internal/common"
+	"github.com/alibaba/schedulerx-worker-go/internal/master/persistence"
 	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
 	"github.com/alibaba/schedulerx-worker-go/processor/jobcontext"
@@ -38,6 +39,30 @@ func (m *MapTaskMaster) withTaskPersistence(serial int64, operation func()) bool
 	return true
 }
 
+// Join local storage operations in full, but only join the enqueue for server
+// persistence. Remote backpressure and response waits must not pin retirement.
+func (m *MapTaskMaster) runTaskPersistence(serial int64, operation func(persistence.TaskPersistence)) bool {
+	remote, ok := m.taskPersistence.(interface {
+		WithMessageSender(persistence.TaskMessageSender) persistence.TaskPersistence
+	})
+	if !ok {
+		return m.withTaskPersistence(serial, func() { operation(m.taskPersistence) })
+	}
+	if !m.cycleActive(serial) {
+		return false
+	}
+	rejected := false
+	bound := remote.WithMessageSender(func(target chan interface{}, msg interface{}) bool {
+		if !m.sendCycleMessage(serial, target, msg, false) {
+			rejected = true
+			return false
+		}
+		return true
+	})
+	operation(bound)
+	return !rejected && m.cycleActive(serial)
+}
+
 func (m *MapTaskMaster) acceptsTaskGeneration(attempt *int32, serial *int64) bool {
 	return m.acceptsStatusAttempt(attempt) && (serial == nil || *serial == m.GetSerialNum())
 }
@@ -49,15 +74,18 @@ func (m *MapTaskMaster) cycleActive(serial int64) bool {
 }
 
 func (m *MapTaskMaster) pullPersistedTasks(serial, id int64, size int32) (tasks []*common.TaskInfo, admitted bool, err error) {
-	admitted = m.withTaskPersistence(serial, func() { tasks, err = m.taskPersistence.Pull(id, size) })
+	admitted = m.runTaskPersistence(serial, func(p persistence.TaskPersistence) { tasks, err = p.Pull(id, size) })
+	if !admitted {
+		tasks = nil
+	}
 	return
 }
 func (m *MapTaskMaster) updatePersistedTasks(serial, id int64, ids []int64, status taskstatus.TaskStatus, worker, addr string) (count int64, admitted bool, err error) {
-	admitted = m.withTaskPersistence(serial, func() { count, err = m.taskPersistence.UpdateTaskStatus(id, ids, status, worker, addr) })
+	admitted = m.runTaskPersistence(serial, func(p persistence.TaskPersistence) { count, err = p.UpdateTaskStatus(id, ids, status, worker, addr) })
 	return
 }
 func (m *MapTaskMaster) batchUpdatePersistedTasks(serial, id int64, status taskstatus.TaskStatus, worker, addr string) (count int64, admitted bool) {
-	admitted = m.withTaskPersistence(serial, func() { count = m.taskPersistence.BatchUpdateTaskStatus(id, status, worker, addr) })
+	admitted = m.runTaskPersistence(serial, func(p persistence.TaskPersistence) { count = p.BatchUpdateTaskStatus(id, status, worker, addr) })
 	return
 }
 

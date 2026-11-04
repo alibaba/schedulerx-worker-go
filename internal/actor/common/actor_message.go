@@ -24,6 +24,8 @@ type SchedulerWrappedMsg struct {
 	Ctx        context.Context
 	Msg        interface{}
 	SenderPath string
+	// Reply is an optional process-local response route, never part of Msg's wire payload.
+	Reply chan interface{}
 }
 
 func WrapSchedulerxMsg(ctx context.Context, msg interface{}, senderPath string) *SchedulerWrappedMsg {

@@ -825,14 +825,14 @@ func (m *MapTaskMaster) batchUpdateTaskStatus(workerId, workerAddr string, reqs 
 func (m *MapTaskMaster) batchHandlePersistence(workerId, workerAddr string, reqs []*schedulerx.MasterStartContainerRequest, isFailover bool) bool {
 	serial := m.GetSerialNum()
 	hasRequests := false
-	admitted := m.withTaskPersistence(serial, func() {
+	admitted := m.runTaskPersistence(serial, func(store persistence.TaskPersistence) {
 		accepted := m.filterDispatchRequests(reqs)
 		if len(accepted) == 0 {
 			return
 		}
 		hasRequests = true
 		if !isFailover {
-			if err := m.taskPersistence.CreateTasks(accepted, workerId, workerAddr); err != nil {
+			if err := store.CreateTasks(accepted, workerId, workerAddr); err != nil {
 				logger.Errorf("CreateTasks failed: %s", err)
 			}
 		} else {
@@ -840,7 +840,7 @@ func (m *MapTaskMaster) batchHandlePersistence(workerId, workerAddr string, reqs
 			for _, req := range accepted {
 				ids = append(ids, req.GetTaskId())
 			}
-			if _, err := m.taskPersistence.UpdateTaskStatus(m.GetJobInstanceInfo().GetJobInstanceId(), ids, taskstatus.TaskStatusRunning, workerId, workerAddr); err != nil {
+			if _, err := store.UpdateTaskStatus(m.GetJobInstanceInfo().GetJobInstanceId(), ids, taskstatus.TaskStatusRunning, workerId, workerAddr); err != nil {
 				logger.Errorf("failover UpdateTaskStatus failed: %s", err)
 			}
 		}

@@ -95,7 +95,11 @@ func (a *taskActor) Receive(ctx actor.Context) {
 			if err != nil {
 				logger.Errorf("Send WorkerBatchUpdateTaskStatusRequest timeout, jobInstanceId=%d, serverAddr=%s", innerMsg.JobInstanceId, serverPid.Address)
 			} else {
-				actorcomm.WorkerBatchUpdateTaskStatusRespMsgSender() <- result.(*schedulerx.WorkerBatchUpdateTaskStatusResponse)
+				if msg.Reply != nil {
+					msg.Reply <- result
+				} else {
+					actorcomm.WorkerBatchUpdateTaskStatusRespMsgSender() <- result.(*schedulerx.WorkerBatchUpdateTaskStatusResponse)
+				}
 			}
 		case *schedulerx.WorkerQueryJobInstanceStatusRequest:
 			// forward to server
@@ -122,7 +126,11 @@ func (a *taskActor) Receive(ctx actor.Context) {
 			if err != nil {
 				logger.Errorf("Send WorkerBatchCreateTasksRequest timeout, jobInstanceId=%d, serverAddr=%s", innerMsg.JobInstanceId, serverPid.Address)
 			} else {
-				actorcomm.WorkerBatchCreateTasksRespMsgSender() <- result.(*schedulerx.WorkerBatchCreateTasksResponse)
+				if msg.Reply != nil {
+					msg.Reply <- result
+				} else {
+					actorcomm.WorkerBatchCreateTasksRespMsgSender() <- result.(*schedulerx.WorkerBatchCreateTasksResponse)
+				}
 			}
 		case *schedulerx.WorkerPullTasksRequest:
 			// forward to server
@@ -131,7 +139,11 @@ func (a *taskActor) Receive(ctx actor.Context) {
 			if err != nil {
 				logger.Errorf("Send WorkerPullTasksRequest timeout, jobInstanceId=%d, serverAddr=%s", innerMsg.JobInstanceId, serverPid.Address)
 			} else {
-				actorcomm.WorkerPullTasksRespMsgSender() <- result.(*schedulerx.WorkerPullTasksResponse)
+				if msg.Reply != nil {
+					msg.Reply <- result
+				} else {
+					actorcomm.WorkerPullTasksRespMsgSender() <- result.(*schedulerx.WorkerPullTasksResponse)
+				}
 			}
 		case *schedulerx.WorkerBatchReportTaskStatuesRequest:
 			// forward to server
