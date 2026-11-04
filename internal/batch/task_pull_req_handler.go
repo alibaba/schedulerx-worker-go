@@ -17,9 +17,7 @@
 package batch
 
 import (
-	"github.com/alibaba/schedulerx-worker-go/internal/master/taskmaster"
 	"github.com/alibaba/schedulerx-worker-go/internal/proto/schedulerx"
-	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
 var _ TaskDispatchReqHandler = (*TaskPullReqHandler)(nil)
@@ -36,18 +34,12 @@ func NewTaskPullReqHandler(jobInstanceId int64, coreBatchThreadNum int, maxBatch
 }
 
 func (h *TaskPullReqHandler) Process(jobInstanceId int64, reqs []interface{}, workerIdAddr string) {
-	masterStartContainerReqs := make([]*schedulerx.MasterStartContainerRequest, 0, len(reqs))
+	requests := make([]*schedulerx.MasterStartContainerRequest, 0, len(reqs))
 	for _, req := range reqs {
-		masterStartContainerReqs = append(masterStartContainerReqs, req.(*schedulerx.MasterStartContainerRequest))
+		requests = append(requests, req.(*schedulerx.MasterStartContainerRequest))
 	}
-	if taskMaster := h.GetTaskMasterPool().Get(jobInstanceId); taskMaster != nil {
-		if mapTaskMaster, ok := taskMaster.(taskmaster.MapTaskMaster); ok {
-			mapTaskMaster.BatchPullTasks(masterStartContainerReqs, workerIdAddr)
-		} else {
-			logger.Warnf("TaskMaster from taskMasterPool is not MapTaskMaster, jobInstanceId:%d", jobInstanceId)
-		}
-	} else {
-		logger.Warnf("TaskMaster from taskMasterPool is not MapTaskMaster, jobInstanceId:%d", jobInstanceId)
+	if h.owner != nil {
+		h.owner.BatchPullTasks(requests, workerIdAddr)
 	}
 }
 

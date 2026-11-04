@@ -53,7 +53,8 @@ type MapTaskMaster interface {
 	Map(jobCtx *jobcontext.JobContext, taskList [][]byte, taskName string) (bool, error)
 	KillTask(uniqueId string, workerId string, workerAddr string)
 	BatchUpdateTaskStatues(requests []*schedulerx.ContainerReportTaskStatusRequest)
-	SyncPullTasks(pageSize int32, workerIdAddr string) []*schedulerx.MasterStartContainerRequest
+	SyncPullTasks(pageSize int32, workerIdAddr string, serials ...int64) []*schedulerx.MasterStartContainerRequest
+	WithCycleHandoff(serial int64, handoff func()) bool
 	BatchPullTasks(masterStartContainerRequests []*schedulerx.MasterStartContainerRequest, workerIdAddr string)
 	BatchDispatchTasks(masterStartContainerRequests []*schedulerx.MasterStartContainerRequest, remoteWorker string)
 	BatchHandlePulledProgress(masterStartContainerRequests []*schedulerx.MasterStartContainerRequest,

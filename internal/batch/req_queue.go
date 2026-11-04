@@ -61,3 +61,17 @@ func (q *ReqQueue) Clear() {
 		}
 	}
 }
+
+// SubmitRequestUntil lets a stopped owner release producers blocked on a full
+// queue without closing a channel shared with concurrent senders.
+func (q *ReqQueue) SubmitRequestUntil(req any, done <-chan struct{}) bool {
+	if req == nil {
+		return false
+	}
+	select {
+	case q.requests <- req:
+		return true
+	case <-done:
+		return false
+	}
+}

@@ -45,14 +45,15 @@ type ShardingTaskMaster struct {
 }
 
 func NewShardingTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.Context) *ShardingTaskMaster {
-	return &ShardingTaskMaster{
-		GridTaskMaster: NewGridTaskMaster(jobInstanceInfo, actorCtx),
-	}
+	m := &ShardingTaskMaster{GridTaskMaster: NewGridTaskMaster(jobInstanceInfo, actorCtx)}
+	m.bindBatchHandlers(m)
+	return m
 }
 
 func (m *ShardingTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceInfo) error {
+	serial := m.GetSerialNum()
 	if err := m.parseShardingParameters(jobInstanceInfo); err != nil {
-		m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, err.Error())
+		m.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, err.Error())
 		return err
 	}
 	shardingNum := len(m.parameters)
@@ -61,13 +62,13 @@ func (m *ShardingTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceI
 		tokens := strings.Split(param, "=")
 		if len(tokens) != 2 {
 			errMsg := "invalid sharding parameters, should be like 0=a,1=b,2=c"
-			m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, errMsg)
+			m.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, errMsg)
 			return errors.New(errMsg)
 		}
 		shardingId, err := strconv.Atoi(tokens[0])
 		if err != nil {
 			errMsg := fmt.Sprintf("invalid sharding parameters, shardingId is not digit, shardingId=%s", tokens[0])
-			m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, errMsg)
+			m.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, errMsg)
 			return errors.New(errMsg)
 		}
 		taskName := tokens[0] // taskName == shardingId
@@ -75,7 +76,7 @@ func (m *ShardingTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceI
 
 		if _, ok := m.taskProgressMap.Load(taskName); ok {
 			errMsg := fmt.Sprintf("shardingId=%s is duplicated", taskName)
-			m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, errMsg)
+			m.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, errMsg)
 			return fmt.Errorf(errMsg)
 		}
 
@@ -83,23 +84,26 @@ func (m *ShardingTaskMaster) SubmitInstance(jobInstanceInfo *common.JobInstanceI
 		taskObj, err := json.Marshal(task)
 		if err != nil {
 			errMsg := fmt.Sprintf("json marshal task failed, err=%s, task=%+v", err.Error(), task)
-			m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, errMsg)
+			m.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, errMsg)
 			return fmt.Errorf(errMsg)
 		}
 		req, err := m.convert2StartContainerRequest(jobInstanceInfo, int64(shardingId), taskName, taskObj, false)
 		if err != nil {
 			errMsg := fmt.Sprintf("convert2StartContainerRequest failed, err=%s, jobInstanceInfo=%+v", err.Error(), jobInstanceInfo)
-			m.UpdateNewInstanceStatus(m.GetSerialNum(), processor.InstanceStatusFailed, errMsg)
+			m.UpdateNewInstanceStatus(serial, processor.InstanceStatusFailed, errMsg)
 			return fmt.Errorf(errMsg)
 		}
+		req.SerialNum = proto.Int64(serial)
 		req.ShardingNum = proto.Int32(int32(shardingNum))
 
 		startContainerRequests = append(startContainerRequests, req)
 	}
 
-	m.startBatchHandler()
+	if err := m.startBatchHandler(serial); err != nil {
+		return err
+	}
 	m.BatchDispatchTasks(startContainerRequests, "")
-	m.init()
+	m.init(serial)
 
 	return nil
 }
@@ -124,8 +128,13 @@ func (m *ShardingTaskMaster) parseShardingParameters(jobInstanceInfo *common.Job
 
 func (m *ShardingTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.ContainerReportTaskStatusRequest) {
 	m.GridTaskMaster.BatchUpdateTaskStatues(requests)
+	m.statusWriteMu.RLock()
+	defer m.statusWriteMu.RUnlock()
+	if m.statusWritesRetired || m.cycleClosed {
+		return
+	}
 	for _, req := range requests {
-		if !m.acceptsStatusAttempt(req.Attempt) {
+		if !m.acceptsTaskGeneration(req.Attempt, req.SerialNum) {
 			continue
 		}
 		var (
@@ -143,17 +152,25 @@ func (m *ShardingTaskMaster) BatchUpdateTaskStatues(requests []*schedulerx.Conta
 
 func (m *ShardingTaskMaster) BatchHandlePulledProgress(masterStartContainerRequests []*schedulerx.MasterStartContainerRequest,
 	remoteWorker string) (map[string][]*schedulerx.MasterStartContainerRequest, map[string][]*schedulerx.MasterStartContainerRequest) {
+	serial := m.GetSerialNum()
+	m.statusWriteMu.Lock()
+	defer m.statusWriteMu.Unlock()
 	var (
 		worker2ReqsWithNormal   = make(map[string][]*schedulerx.MasterStartContainerRequest)
 		worker2ReqsWithFailover = make(map[string][]*schedulerx.MasterStartContainerRequest)
 	)
 	for _, request := range masterStartContainerRequests {
+		if m.statusWritesRetired || m.cycleClosed || !m.acceptsTaskGeneration(request.Attempt, request.SerialNum) {
+			continue
+		}
 		workerIdAddr := remoteWorker
 		if workerIdAddr == "" {
 			workerIdAddr = m.selectWorker()
 		}
 		if workerIdAddr == "" {
-			m.updateNewInstanceStatus(m.GetSerialNum(), m.GetJobInstanceInfo().GetJobInstanceId(), processor.InstanceStatusFailed, "all worker is down!")
+			m.statusWriteMu.Unlock()
+			m.updateNewInstanceStatus(serial, m.GetJobInstanceInfo().GetJobInstanceId(), processor.InstanceStatusFailed, "all worker is down!")
+			m.statusWriteMu.Lock()
 			break
 		}
 
@@ -208,7 +225,11 @@ func (m *ShardingTaskMaster) CheckProcessor() {
 }
 
 func (m *ShardingTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
-	if err, _ := m.clearPersistedTasks(jobInstanceId); err != nil {
+	return m.postFinishAtCycle(jobInstanceId, m.GetSerialNum())
+}
+
+func (m *ShardingTaskMaster) postFinishAtCycle(jobInstanceID, serial int64) *processor.ProcessResult {
+	if err, admitted := m.clearPersistedTasks(jobInstanceID, serial); err != nil || !admitted {
 		return nil
 	}
 	return processor.NewProcessResult(processor.WithSucceed())
@@ -216,5 +237,6 @@ func (m *ShardingTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessR
 
 func (m *ShardingTaskMaster) Clear(taskMaster taskmaster.TaskMaster) {
 	m.GridTaskMaster.Clear(taskMaster)
-	m.shardingTaskStatusMap = sync.Map{}
 }
+
+func (m *ShardingTaskMaster) resetCycleState() { m.shardingTaskStatusMap = sync.Map{} }

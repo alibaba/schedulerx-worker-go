@@ -168,8 +168,9 @@ func TestDelayedMapStatusFlushCannotMutateReplacementAttempt(t *testing.T) {
 			defer masterpool.GetTaskMasterPool().Remove(1001)
 			queue := batch.NewReqQueue(8)
 			handler := batch.NewTMStatusReqHandler(1001, 1, 1, 8, queue)
+			handler.BindTaskMaster(target.(taskmaster.MapTaskMaster))
 			queue.SubmitRequest(attemptTestRequest(proto.Int32(0)))
-			handler.AsyncHandleReqs(handler) // The old handler resolves the replacement Master at flush time.
+			handler.AsyncHandleReqs(handler) // A current handler still rejects delayed status from a different attempt.
 			if len(sink.received) != 0 {
 				t.Fatal("old queued status reached replacement persistence")
 			}
