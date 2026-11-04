@@ -134,17 +134,21 @@ func (m *ParallelTaskMaster) RetryTasks(taskEntities []*schedulerx.RetryTaskEnti
 	}
 
 	serial := m.GetSerialNum()
-	if !m.sendCycleMessage(serial, actorcomm.TaskMasterMsgReceiver(), &actorcomm.SchedulerWrappedMsg{Msg: req}, false) {
+	// Keep replies tied to this invocation even across timeout, replacement, or
+	// overlapping retries in the same cycle. A late reply fits without a waiter.
+	reply := make(chan interface{}, 1)
+	if !m.sendCycleMessage(serial, actorcomm.TaskMasterMsgReceiver(), &actorcomm.SchedulerWrappedMsg{Msg: req, Reply: reply}, false) {
 		return
 	}
 	// Join only the local enqueue above. A remote response must never hold the
 	// lifecycle gate and delay retirement or the next cycle. Keep receiving the
-	// response as before, then revalidate before committing any local state.
+	// request's response, then revalidate before committing any local state.
 	var response *schedulerx.WorkerReportTaskListStatusResponse
 	timer := time.NewTimer(30 * time.Second)
 	defer timer.Stop()
 	select {
-	case response = <-actorcomm.WorkerReportTaskListStatusRespMsgSender():
+	case result := <-reply:
+		response = result.(*schedulerx.WorkerReportTaskListStatusResponse)
 	case <-timer.C:
 	}
 	if !m.cycleActive(serial) {

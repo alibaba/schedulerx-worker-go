@@ -155,7 +155,11 @@ func (a *taskActor) Receive(ctx actor.Context) {
 			if err != nil {
 				logger.Errorf("Send WorkerReportTaskListStatusRequest timeout, jobInstanceId=%d, serverAddr=%s", innerMsg.JobInstanceId, serverPid.Address)
 			} else {
-				actorcomm.WorkerReportTaskListStatusRespMsgSender() <- result.(*schedulerx.WorkerReportTaskListStatusResponse)
+				if msg.Reply != nil {
+					msg.Reply <- result
+				} else {
+					actorcomm.WorkerReportTaskListStatusRespMsgSender() <- result.(*schedulerx.WorkerReportTaskListStatusResponse)
+				}
 			}
 		default:
 			logger.Errorf("Receive unknown message in taskActor, msg=%+v", msg)

@@ -399,7 +399,7 @@ func TestRetiredParallelRetryCannotResetServerTasks(t *testing.T) {
 			if !ok || req.GetJobInstanceId() != 98765 {
 				continue
 			}
-			actorcomm.WorkerReportTaskListStatusRespMsgSender() <- &schedulerx.WorkerReportTaskListStatusResponse{Success: proto.Bool(false)}
+			replyRetryForTest(wrapped, false)
 			waitRetirementTest(t, done)
 			t.Fatal("retired Parallel Master sent a server task reset")
 		case <-timer.C:
@@ -448,11 +448,13 @@ func TestParallelRetryConsumesItsActualServerResponse(t *testing.T) {
 	deadline := time.NewTimer(time.Second)
 	defer deadline.Stop()
 	sent := false
+	var retryRequest *actorcomm.SchedulerWrappedMsg
 	for !sent {
 		select {
 		case msg := <-actorcomm.TaskMasterMsgReceiver():
 			if w, ok := msg.(*actorcomm.SchedulerWrappedMsg); ok {
 				if req, ok := w.Msg.(*schedulerx.WorkerReportTaskListStatusRequest); ok && req.GetJobInstanceId() == 98766 {
+					retryRequest = w
 					sent = true
 				}
 			}
@@ -460,13 +462,10 @@ func TestParallelRetryConsumesItsActualServerResponse(t *testing.T) {
 			t.Fatal("retry reset was not sent")
 		}
 	}
-	actorcomm.WorkerReportTaskListStatusRespMsgSender() <- &schedulerx.WorkerReportTaskListStatusResponse{Success: proto.Bool(true)}
+	replyRetryForTest(retryRequest, true)
 	select {
 	case <-done:
-	case <-time.After(30 * time.Millisecond):
-		// Release the legacy incorrect response wait so the failing test owns no goroutine.
-		actorcomm.WorkerBatchUpdateTaskStatusRespMsgSender() <- &schedulerx.WorkerBatchUpdateTaskStatusResponse{Success: proto.Bool(false)}
-		waitRetirementTest(t, done)
+	case <-time.After(time.Second):
 		t.Fatal("retry ignored the response type emitted by taskActor")
 	}
 	if counter.GetSuccess() != 0 {

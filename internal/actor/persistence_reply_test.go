@@ -49,7 +49,7 @@ func (c persistenceReplyContext) RequestFuture(_ *pa.PID, msg interface{}, timeo
 }
 
 func TestPersistenceActorUsesRequestScopedReply(t *testing.T) {
-	for _, kind := range []string{"pull", "batch update", "create"} {
+	for _, kind := range []string{"pull", "batch update", "create", "retry"} {
 		for _, scoped := range []bool{true, false} {
 			t.Run(kind+map[bool]string{true: "/scoped-late", false: "/legacy"}[scoped], func(t *testing.T) {
 				system := pa.NewActorSystem()
@@ -79,6 +79,17 @@ func TestPersistenceActorUsesRequestScopedReply(t *testing.T) {
 							return nil
 						}
 					}
+				case "retry":
+					req = &schedulerx.WorkerReportTaskListStatusRequest{JobInstanceId: proto.Int64(1001)}
+					response = &schedulerx.WorkerReportTaskListStatusResponse{Success: proto.Bool(true)}
+					takeLegacy = func() interface{} {
+						select {
+						case v := <-actorcomm.WorkerReportTaskListStatusRespMsgSender():
+							return v
+						default:
+							return nil
+						}
+					}
 				case "create":
 					req = &schedulerx.WorkerBatchCreateTasksRequest{JobInstanceId: proto.Int64(1001)}
 					response = &schedulerx.WorkerBatchCreateTasksResponse{Success: proto.Bool(true)}
@@ -94,7 +105,7 @@ func TestPersistenceActorUsesRequestScopedReply(t *testing.T) {
 				for takeLegacy() != nil {
 				}
 				responder := system.Root.Spawn(pa.PropsFromFunc(func(ctx pa.Context) {
-					if _, ok := ctx.Message().(*actorcomm.SchedulerWrappedMsg); ok {
+					if _, ok := ctx.Message().(*actorcomm.SchedulerWrappedMsg); ok || ctx.Message() == req {
 						ctx.Respond(response)
 					}
 				}))
@@ -108,7 +119,7 @@ func TestPersistenceActorUsesRequestScopedReply(t *testing.T) {
 				ctx := persistenceReplyContext{system: system, responder: responder, message: wrapped}
 				done := make(chan struct{})
 				go func() { defer close(done); new(taskActor).Receive(ctx) }()
-				// No caller receives until the actor has finished: a late response
+				// No scoped caller receives until the actor has finished: a late response
 				// must fit the private buffer even when its waiter has gone away.
 				select {
 				case <-done:

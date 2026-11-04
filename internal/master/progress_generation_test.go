@@ -130,11 +130,13 @@ func TestRetryProgressCannotCrossCycle(t *testing.T) {
 	go func() { defer close(done); m.RetryTasks(entities) }()
 	timer := time.NewTimer(time.Second * 5)
 	defer timer.Stop()
+	var retryRequest *actorcomm.SchedulerWrappedMsg
 	for {
 		select {
 		case msg := <-actorcomm.TaskMasterMsgReceiver():
 			if w, ok := msg.(*actorcomm.SchedulerWrappedMsg); ok {
 				if r, ok := w.Msg.(*schedulerx.WorkerReportTaskListStatusRequest); ok && r.GetJobInstanceId() == 1001 {
+					retryRequest = w
 					goto sent
 				}
 			}
@@ -143,7 +145,7 @@ func TestRetryProgressCannotCrossCycle(t *testing.T) {
 		}
 	}
 sent:
-	actorcomm.WorkerReportTaskListStatusRespMsgSender() <- &schedulerx.WorkerReportTaskListStatusResponse{Success: proto.Bool(true)}
+	replyRetryForTest(retryRequest, true)
 	for first.GetSuccess() != 0 {
 		select {
 		case <-timer.C:
