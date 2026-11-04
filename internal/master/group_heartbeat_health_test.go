@@ -34,6 +34,13 @@ import (
 	"github.com/asynkron/protoactor-go/actor"
 )
 
+type groupHealthActorContext struct {
+	actor.Context
+	system *actor.ActorSystem
+}
+
+func (c groupHealthActorContext) ActorSystem() *actor.ActorSystem { return c.system }
+
 type groupHealthPool struct {
 	conn     net.Conn
 	failures atomic.Int32
@@ -92,7 +99,10 @@ func TestHeartbeatOfAnotherGroupCannotKeepExpiredOwnerAlive(t *testing.T) {
 	info.SetGroupId(failedGroup)
 	info.SetAppGroupId(2)
 	info.SetAllWorkers([]string{"live-worker"})
-	owner := &TaskMaster{inited: true, jobInstanceInfo: info, aliveCheckWorkerSet: utils.NewConcurrentSet[string]()}
+	system := actor.NewActorSystem()
+	defer system.Shutdown()
+	system.ProcessRegistry.Address = "127.0.0.1:12346"
+	owner := NewTaskMaster(groupHealthActorContext{system: system}, info, nil)
 	handler := NewSecondJobUpdateInstanceStatusHandler(nil, owner, info)
 	masterpool.GetTaskMasterPool().Put(info.GetJobInstanceId(), owner)
 	utils.GetHealthTimeHolder() // Start the legacy timer too, for the baseline.
@@ -122,9 +132,6 @@ func TestHeartbeatOfAnotherGroupCannotKeepExpiredOwnerAlive(t *testing.T) {
 		}
 		return failed
 	})
-	system := actor.NewActorSystem()
-	defer system.Shutdown()
-	system.ProcessRegistry.Address = "127.0.0.1:12346"
 	stop := make(chan os.Signal, 1)
 	stop <- os.Interrupt
 	done := make(chan struct{})
