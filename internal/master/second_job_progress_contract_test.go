@@ -152,3 +152,77 @@ func TestProgressHonorsOptionalLifecycleContract(t *testing.T) {
 		t.Fatal("lifecycle transition changed unrelated queued messages")
 	}
 }
+
+// Exercise the actual Map gate now present on develop, in addition to the
+// optional-contract adapter. No persistence, actors, or periodic loops are
+// replaced: this test drives the real nonblocking progress handoff directly.
+func TestProgressBackpressureHonorsRealMapLifecycle(t *testing.T) {
+	if isolateHandoffProbe(t) {
+		return
+	}
+	queue := actorcomm.TaskMasterMsgReceiver()
+	for _, mode := range []string{"serial", "retire", "idle"} {
+		t.Run(mode, func(t *testing.T) {
+			drainR4(queue)
+			t.Cleanup(func() { drainR4(queue) })
+			base, _ := attemptTestMaster(0)
+			master := &MapTaskMaster{TaskMaster: base, retireCh: make(chan struct{})}
+			h := NewSecondJobUpdateInstanceStatusHandler(nil, master, base.jobInstanceInfo)
+			base.statusHandler = h
+			t.Cleanup(h.stop)
+			if mode == "idle" {
+				master.statusWriteMu.Lock()
+				master.cycleClosed = true
+				master.statusWriteMu.Unlock()
+				msg := &actorcomm.SchedulerWrappedMsg{Msg: "idle snapshot"}
+				if !h.sendProgressWhileCheckingHealth(0, msg, nil) || <-queue != msg {
+					t.Fatal("current-owner idle progress must still be admitted")
+				}
+				return
+			}
+			for len(queue) < cap(queue) {
+				queue <- "unrelated"
+			}
+			done := make(chan bool, 1)
+			completed := make(chan struct{})
+			go func() {
+				defer close(completed)
+				done <- h.sendProgressWhileCheckingHealth(0, &actorcomm.SchedulerWrappedMsg{Msg: "old snapshot"}, nil)
+			}()
+			t.Cleanup(func() {
+				h.stop()
+				select {
+				case <-completed:
+				case <-time.After(time.Second):
+					t.Error("stopped progress sender did not exit")
+				}
+			})
+			r4WaitStack(t, "sendProgressWhileCheckingHealth")
+			transitioned := make(chan struct{})
+			go func() {
+				if mode == "retire" {
+					master.RetireStatusWrites()
+				} else {
+					master.AcquireSerialNum()
+				}
+				close(transitioned)
+			}()
+			select {
+			case <-transitioned:
+			case <-time.After(time.Second):
+				t.Fatal("progress capacity wait pinned the real lifecycle gate")
+			}
+			select {
+			case sent := <-done:
+				if sent {
+					t.Fatal("old snapshot crossed the real lifecycle transition")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("old pending snapshot did not release after transition")
+			}
+			if len(queue) != cap(queue) {
+				t.Fatal("rejection altered unrelated queued messages")
+			}
+		})
+	}
+}

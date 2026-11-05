@@ -61,6 +61,7 @@ func NewGridTaskMaster(jobInstanceInfo *common.JobInstanceInfo, actorCtx actor.C
 	} else {
 		gridTaskMaster.taskDispatchReqHandler = batch.NewTaskPushReqHandler(jobInstanceId, 1, 1, gridTaskMaster.pageSize*int32(len(jobInstanceInfo.GetAllWorkers())), gridTaskMaster.taskBlockingQueue, 3000)
 	}
+	gridTaskMaster.bindBatchHandlers(gridTaskMaster)
 	return gridTaskMaster
 }
 
@@ -77,13 +78,20 @@ func (m *GridTaskMaster) doMetricsCheck() {
 }
 
 func (m *GridTaskMaster) Map(jobCtx *jobcontext.JobContext, taskList [][]byte, taskName string) (bool, error) {
+	jobCtx = m.mapContextAtReceipt(jobCtx)
+	if !m.acceptsMapContext(jobCtx) {
+		return false, nil
+	}
 	if len(taskList) == 0 {
 		errMsg := fmt.Sprintf("map taskList is empty, taskName:%v", taskName)
 		logger.Warnf(errMsg)
 		return false, fmt.Errorf(fmt.Sprintf("map taskList is empty, taskName:%v", taskName))
 	}
 	logger.Infof("map taskList, jobInstanceId=%v, taskName:%v, taskList size:%v", m.GetJobInstanceInfo().GetJobInstanceId(), taskName, len(taskList))
-	counter := m.taskCounter.Add(int64(len(taskList)))
+	var counter int64
+	if !m.withCycleState(jobCtx.SerialNum(), func() { counter = m.taskCounter.Add(int64(len(taskList))) }) {
+		return false, nil
+	}
 	if m.xAttrs != nil && m.xAttrs.GetTaskDispatchMode() == string(common.TaskDispatchModePull) && counter > constants.PullModeTaskSizeMax {
 		logger.Errorf("jobInstanceId=%v, pullModel, task counter=%v, beyond %v", m.GetJobInstanceInfo().GetJobInstanceId(), counter, constants.PullModeTaskSizeMax)
 		return false, fmt.Errorf(fmt.Sprintf("task size of pullModel can't beyond %d", constants.PullModeTaskSizeMax))
@@ -94,9 +102,13 @@ func (m *GridTaskMaster) Map(jobCtx *jobcontext.JobContext, taskList [][]byte, t
 }
 
 func (m *GridTaskMaster) PostFinish(jobInstanceId int64) *processor.ProcessResult {
-	postResult := m.MapTaskMaster.PostFinish(jobInstanceId)
+	return m.postFinishAtCycle(jobInstanceId, m.GetSerialNum())
+}
+
+func (m *GridTaskMaster) postFinishAtCycle(jobInstanceID, serial int64) *processor.ProcessResult {
+	postResult := m.postFinish(jobInstanceID, serial)
 	// Do not hold the persistence gate across user PostFinish/reduce callbacks.
-	if err, _ := m.clearPersistedTasks(jobInstanceId); err != nil {
+	if err, _ := m.clearPersistedTasks(jobInstanceID, serial); err != nil {
 		logger.Errorf("Clear tasks failed in PostFinish, err=%s", err.Error())
 	}
 	return postResult
