@@ -79,6 +79,10 @@ func (s *TimeScheduler) remove(jobInstanceId int64) {
 	s.timeQueue.Remove(jobInstanceId)
 }
 
+func (s *TimeScheduler) removeIfOwner(jobInstanceID int64, owner *SecondJobUpdateInstanceStatusHandler) {
+	s.timeQueue.RemoveIfOwner(jobInstanceID, owner)
+}
+
 func (s *TimeScheduler) submitPlan(planEntry *TimePlanEntry) {
 	planEntry.Handler().triggerNewCycle()
 }
