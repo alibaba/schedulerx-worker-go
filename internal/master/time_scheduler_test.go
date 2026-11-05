@@ -94,12 +94,16 @@ func TestTimeSchedulerContinuesAfterConcurrentCancellation(t *testing.T) {
 		calls <- info.GetJobInstanceId()
 	})
 	scheduler.add(first)
-	for _, want := range []int64{1, 2} {
+	// Different owners may now submit independently. Keep verifying both
+	// callbacks and reentrant queue admission without requiring their order.
+	seen := make(map[int64]bool)
+	for i := 0; i < 2; i++ {
 		select {
 		case got := <-calls:
-			if got != want {
-				t.Fatalf("dispatched %d, want %d", got, want)
+			if (got != 1 && got != 2) || seen[got] {
+				t.Fatalf("unexpected or duplicate dispatch: %d", got)
 			}
+			seen[got] = true
 		case <-time.After(3 * time.Second):
 			t.Fatal("scanner stopped or held queue lock during submission")
 		}

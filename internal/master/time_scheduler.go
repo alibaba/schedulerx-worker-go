@@ -37,13 +37,16 @@ func GetTimeScheduler() *TimeScheduler {
 
 // TimeScheduler is the client time scheduler, mainly used for second-level task scheduling.
 type TimeScheduler struct {
-	timeQueue *TimeQueue
-	once      sync.Once
+	timeQueue  *TimeQueue
+	once       sync.Once
+	dispatchMu sync.Mutex
+	dispatches map[*SecondJobUpdateInstanceStatusHandler][]*TimePlanEntry
 }
 
 func newTimeScheduler() *TimeScheduler {
 	return &TimeScheduler{
-		timeQueue: NewTimeQueue(),
+		timeQueue:  NewTimeQueue(),
+		dispatches: make(map[*SecondJobUpdateInstanceStatusHandler][]*TimePlanEntry),
 	}
 }
 
@@ -63,8 +66,8 @@ func (s *TimeScheduler) timeScan() {
 				break
 			}
 			logger.Infof("%s time ready", planEntry)
-			// PopDue released the queue lock before invoking the task lifecycle.
-			s.submitPlan(planEntry)
+			// PopDue releases the queue lock before asynchronous lifecycle work.
+			s.dispatchPlan(planEntry)
 		}
 
 		time.Sleep(100 * time.Millisecond)
@@ -85,4 +88,50 @@ func (s *TimeScheduler) removeIfOwner(jobInstanceID int64, owner *SecondJobUpdat
 
 func (s *TimeScheduler) submitPlan(planEntry *TimePlanEntry) {
 	planEntry.Handler().triggerNewCycle()
+}
+
+// dispatchPlan admits work without waiting for the selected worker. A single
+// runner owns each handler's FIFO: one owner keeps its cycle ordering while
+// unrelated jobs and a replacement owner never wait for its remote reply.
+func (s *TimeScheduler) dispatchPlan(plan *TimePlanEntry) {
+	if plan == nil {
+		return
+	}
+	owner := plan.Handler()
+	s.dispatchMu.Lock()
+	_, running := s.dispatches[owner]
+	s.dispatches[owner] = append(s.dispatches[owner], plan)
+	s.dispatchMu.Unlock()
+	if !running {
+		go s.runDispatch(owner)
+	}
+}
+
+func (s *TimeScheduler) runDispatch(owner *SecondJobUpdateInstanceStatusHandler) {
+	defer func() {
+		// Also runs for runtime.Goexit in user hooks. Never leave a dead runner
+		// owning this handler's queue or discard another already-admitted plan.
+		// Panics retain the existing fail-fast behavior; swallowing one can leave
+		// its claimed cycle in the pool without a completion or next plan.
+		s.dispatchMu.Lock()
+		if len(s.dispatches[owner]) == 0 {
+			delete(s.dispatches, owner)
+		} else {
+			go s.runDispatch(owner)
+		}
+		s.dispatchMu.Unlock()
+	}()
+	for {
+		s.dispatchMu.Lock()
+		plans := s.dispatches[owner]
+		if len(plans) == 0 {
+			s.dispatchMu.Unlock()
+			return
+		}
+		plan := plans[0]
+		plans[0] = nil
+		s.dispatches[owner] = plans[1:]
+		s.dispatchMu.Unlock()
+		s.submitPlan(plan)
+	}
 }
