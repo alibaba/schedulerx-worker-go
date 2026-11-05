@@ -43,8 +43,8 @@ func GetHealthTimeHolder() *healthTimeHolder {
 }
 
 func newHealthTimeHolder() *healthTimeHolder {
-	h := &healthTimeHolder{}
-	h.latestServerHeartbeatTime.Store(time.Now().UnixMilli())
+	h := new(healthTimeHolder)
+	h.ResetServerHeartbeatTime()
 	return h
 }
 
@@ -60,7 +60,7 @@ func (h *healthTimeHolder) GetServerHeartbeatMsInterval() int64 {
 
 // IsServerHeartbeatHealthTimeout check if the time since the last successful heartbeat detection of the server is greater than the given interval time
 func (h *healthTimeHolder) IsServerHeartbeatHealthTimeout(seconds int64) bool {
-	return h.GetServerHeartbeatMsInterval() > seconds*1000
+	return (time.Now().UnixMilli() - h.latestServerHeartbeatTime.Load()) > seconds*1000
 }
 
 // InitGroupServerHeartbeatTime starts a new group's grace window without

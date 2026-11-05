@@ -33,55 +33,79 @@ import (
 	"github.com/alibaba/schedulerx-worker-go/logger"
 )
 
-func Handshake(ctx context.Context, conn net.Conn) error {
-	if err := sendHandshake(ctx, conn); err != nil {
-		return fmt.Errorf("Write handshake to remote failed, err=%s. ", err.Error())
+// Handshake bounds the entire exchange, including blocking socket reads and writes.
+func Handshake(ctx context.Context, conn net.Conn) (result error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	deadline, _ := ctx.Deadline()
+	if err := conn.SetDeadline(deadline); err != nil {
+		return fmt.Errorf("set handshake deadline: %w", err)
 	}
 
-	waitRespTimeout := 5 * time.Second
-	waitTimeout := time.After(waitRespTimeout)
-	for {
+	// Context cancellation has to interrupt the in-flight syscall. Join this
+	// watcher before clearing deadlines so it cannot poison a reused connection.
+	stop, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
 		select {
-		case <-waitTimeout:
-			return fmt.Errorf("Wait handshake response timeout, timeout=%s ", waitRespTimeout.String())
-		default:
-			var dataLen uint32
-			hdrBuf := make([]byte, constants.TransportHeaderSize)
-			n, err := io.ReadFull(conn, hdrBuf)
-			if err == io.EOF {
-				continue
-			}
-			if n < constants.TransportHeaderSize {
-				logger.Errorf("Read header from connection failed, read bytes=%d but expect bytes=%d", n, constants.TransportHeaderSize)
-				continue
-			}
-
-			dataLen = binary.BigEndian.Uint32(hdrBuf)
-			dataBuf := make([]byte, dataLen)
-			n, err = io.ReadFull(conn, dataBuf)
-			if err == io.EOF {
-				continue
-			}
-			if n < int(dataLen) {
-				logger.Errorf("Read payload from connection failed, read bytes=%d but expect bytes=%d", n, dataLen)
-				continue
-			}
-
-			msg, err := trans.ReadAkkaMsg(dataBuf)
-			if err != nil {
-				return fmt.Errorf("handshake read akka msg err=%+v ", err)
-			}
-			if controlMsg := msg.Instruction; controlMsg != nil && controlMsg.CommandType != nil {
-				if int32(*controlMsg.CommandType) == int32(akka.CommandType_ASSOCIATE) {
-					logger.Infof("Receive handshake msg, msg=%+v ", controlMsg)
-					return nil
-				}
-			} else {
-				return fmt.Errorf("Receive unknown msg type when wait handshake response, msg=%+v ", msg)
-			}
+		case <-ctx.Done():
+			_ = conn.SetDeadline(time.Now())
+		case <-stop:
 		}
+	}()
+	defer func() {
+		close(stop)
+		<-stopped
+		if err := ctx.Err(); err != nil {
+			result = err
+		} else if !time.Now().Before(deadline) {
+			result = context.DeadlineExceeded
+		}
+		if err := conn.SetDeadline(time.Time{}); err != nil && result == nil {
+			result = fmt.Errorf("clear handshake deadline: %w", err)
+		}
+	}()
+
+	// The common encoder must not overwrite the installed exchange deadline
+	// or a cancellation deadline which the watcher has already installed.
+	if err := sendHandshake(ctx, handshakeDeadlineConn{Conn: conn}); err != nil {
+		return fmt.Errorf("write handshake: %w", err)
 	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var hdr [constants.TransportHeaderSize]byte
+		if _, err := io.ReadFull(conn, hdr[:]); err != nil {
+			return fmt.Errorf("read handshake header: %w", err)
+		}
+		data := make([]byte, binary.BigEndian.Uint32(hdr[:]))
+		if _, err := io.ReadFull(conn, data); err != nil {
+			return fmt.Errorf("read handshake payload: %w", err)
+		}
+		msg, err := trans.ReadAkkaMsg(data)
+		if err != nil {
+			return fmt.Errorf("decode handshake: %w", err)
+		}
+		if msg.Instruction == nil || msg.Instruction.CommandType == nil {
+			return fmt.Errorf("unexpected handshake response: %v", msg)
+		}
+		if *msg.Instruction.CommandType == akka.CommandType_ASSOCIATE {
+			logger.Infof("Receive handshake msg, msg=%+v ", msg.Instruction)
+			return nil
+		}
+		// Preserve handling of other control frames while waiting for ASSOCIATE.
+	}
+
 }
+
+type handshakeDeadlineConn struct{ net.Conn }
+
+// The exchange owns both deadlines until its cancellation watcher has joined.
+func (c handshakeDeadlineConn) SetWriteDeadline(time.Time) error { return nil }
 
 func sendHandshake(ctx context.Context, conn net.Conn) error {
 	host, port, err := utils.ParseIPAddr(conn.LocalAddr().String())

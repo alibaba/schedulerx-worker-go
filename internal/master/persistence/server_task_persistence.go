@@ -41,6 +41,50 @@ type ServerTaskPersistence struct {
 	serverDiscovery *discovery.ServiceDiscover
 	groupManager    *discovery.GroupManager
 	groupId         string
+	messageSender   TaskMessageSender
+}
+
+// TaskMessageSender admits a local handoff without joining the remote response.
+type TaskMessageSender func(chan interface{}, interface{}) bool
+
+var ErrTaskHandoffRejected = errors.New("task message handoff rejected")
+
+// WithMessageSender returns an operation-scoped copy. Concurrent callers must
+// never replace the transport on the shared persistence instance.
+func (rcvr *ServerTaskPersistence) WithMessageSender(sender TaskMessageSender) TaskPersistence {
+	bound := *rcvr
+	bound.messageSender = sender
+	return &bound
+}
+
+func (rcvr *ServerTaskPersistence) sendMessage(target chan interface{}, msg interface{}) bool {
+	if rcvr.messageSender != nil {
+		return rcvr.messageSender(target, msg)
+	}
+	target <- msg
+	return true
+}
+
+func (rcvr *ServerTaskPersistence) newReplyChannel() chan interface{} {
+	if rcvr.messageSender == nil {
+		return nil // Raw API callers retain the legacy response route.
+	}
+	// A late response must not block the actor after the caller's timeout.
+	return make(chan interface{}, 1)
+}
+
+func waitTaskResponse[T any](reply chan interface{}, legacy <-chan *T, timeout <-chan time.Time) (*T, bool) {
+	if reply != nil {
+		legacy = nil // Scoped callers must never consume another request's reply.
+	}
+	select {
+	case result := <-reply:
+		return result.(*T), true
+	case result := <-legacy:
+		return result, true
+	case <-timeout:
+		return nil, false
+	}
 }
 
 func NewServerTaskPersistence(groupId string) (rcvr *ServerTaskPersistence) {
@@ -62,22 +106,24 @@ func (rcvr *ServerTaskPersistence) BatchUpdateTaskStatus(jobInstanceId int64, st
 	}
 
 	// Send to server by master
-	actorcomm.TaskMasterMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
-		Msg: req,
+	reply := rcvr.newReplyChannel()
+	if !rcvr.sendMessage(actorcomm.TaskMasterMsgReceiver(), &actorcomm.SchedulerWrappedMsg{
+		Msg: req, Reply: reply,
+	}) {
+		return 0
 	}
 
 	// Wait 5 seconds
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
-	select {
-	case resp := <-actorcomm.WorkerBatchUpdateTaskStatusRespMsgSender():
+	if resp, received := waitTaskResponse(reply, actorcomm.WorkerBatchUpdateTaskStatusRespMsgSender(), timer.C); received {
 		if resp.GetSuccess() {
 			affectCnt = int64(resp.GetAffectCnt())
 			logger.Debugf("batch update Status=>%d to Server succeed, JobInstanceId=%d, workerAddr=%s", status, jobInstanceId, workerAddr)
 		} else {
 			logger.Errorf("batch update Status failed, response message=%s", resp.GetMessage())
 		}
-	case <-timer.C:
+	} else {
 		logger.Errorf("BatchUpdateTaskStatus of JobInstanceId=%d in ServerTaskPersistence timeout", jobInstanceId)
 	}
 
@@ -192,15 +238,15 @@ func (rcvr *ServerTaskPersistence) CreateTasks(containers []*schedulerx.MasterSt
 	batchReqs.WorkerAddr = proto.String(workerAddr)
 
 	// Send to server by master
-	actorcomm.TaskMasterMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
-		Msg: batchReqs,
+	reply := rcvr.newReplyChannel()
+	if !rcvr.sendMessage(actorcomm.TaskMasterMsgReceiver(), &actorcomm.SchedulerWrappedMsg{Msg: batchReqs, Reply: reply}) {
+		return ErrTaskHandoffRejected
 	}
 
 	// Wait 90 seconds
 	timer := time.NewTimer(90 * time.Second)
 	defer timer.Stop()
-	select {
-	case resp := <-actorcomm.WorkerBatchCreateTasksRespMsgSender():
+	if resp, received := waitTaskResponse(reply, actorcomm.WorkerBatchCreateTasksRespMsgSender(), timer.C); received {
 		if resp.GetSuccess() {
 			logger.Infof("batch create tasks to server succeed, JobInstanceId=%d, size=%d", jobInstanceId, len(containers))
 		} else {
@@ -208,7 +254,7 @@ func (rcvr *ServerTaskPersistence) CreateTasks(containers []*schedulerx.MasterSt
 			logger.Errorf(errMsg)
 			return errors.New(errMsg)
 		}
-	case <-timer.C:
+	} else {
 		logger.Errorf("ClearTasks of JobInstanceId=%d in ServerTaskPersistence timeout", jobInstanceId)
 	}
 
@@ -227,15 +273,15 @@ func (rcvr *ServerTaskPersistence) Pull(jobInstanceId int64, pageSize int32) ([]
 	}
 
 	// Send to server by master
-	actorcomm.TaskMasterMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
-		Msg: req,
+	reply := rcvr.newReplyChannel()
+	if !rcvr.sendMessage(actorcomm.TaskMasterMsgReceiver(), &actorcomm.SchedulerWrappedMsg{Msg: req, Reply: reply}) {
+		return nil, ErrTaskHandoffRejected
 	}
 
 	// Wait 30 seconds
 	timer := time.NewTimer(30 * time.Second)
 	defer timer.Stop()
-	select {
-	case resp := <-actorcomm.WorkerPullTasksRespMsgSender():
+	if resp, received := waitTaskResponse(reply, actorcomm.WorkerPullTasksRespMsgSender(), timer.C); received {
 		if resp.GetSuccess() {
 			taskMessages := resp.GetTaskMessage()
 			for _, taskMessage := range taskMessages {
@@ -244,7 +290,7 @@ func (rcvr *ServerTaskPersistence) Pull(jobInstanceId int64, pageSize int32) ([]
 		} else {
 			logger.Errorf("pull tasks of jobInstance=%d failed, respMsg=%s", jobInstanceId, resp.GetMessage())
 		}
-	case <-timer.C:
+	} else {
 		logger.Errorf("ClearTasks of JobInstanceId=%d in ServerTaskPersistence timeout", jobInstanceId)
 	}
 
@@ -299,8 +345,8 @@ func (rcvr *ServerTaskPersistence) UpdateTaskStatus(jobInstanceId int64, taskIds
 	}
 	req.TaskStatues = append(req.TaskStatues, batchTaskStatues)
 
-	actorcomm.AtLeastOnceDeliveryMsgReceiver() <- &actorcomm.SchedulerWrappedMsg{
-		Msg: req,
+	if !rcvr.sendMessage(actorcomm.AtLeastOnceDeliveryMsgReceiver(), &actorcomm.SchedulerWrappedMsg{Msg: req}) {
+		return 0, ErrTaskHandoffRejected
 	}
 	var resp *schedulerx.WorkerBatchReportTaskStatuesResponse
 	if !resp.GetSuccess() {
