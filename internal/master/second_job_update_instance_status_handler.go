@@ -61,6 +61,7 @@ type SecondJobUpdateInstanceStatusHandler struct {
 }
 
 func NewSecondJobUpdateInstanceStatusHandler(actorCtx actor.Context, taskMaster taskmaster.TaskMaster, jobInstanceInfo *common.JobInstanceInfo) *SecondJobUpdateInstanceStatusHandler {
+	utils.GetHealthTimeHolder().InitGroupServerHeartbeatTime(jobInstanceInfo.GetGroupId())
 	h := &SecondJobUpdateInstanceStatusHandler{
 		baseUpdateInstanceStatusHandler: NewBaseUpdateInstanceStatusHandler(jobInstanceInfo, taskMaster),
 		actorCtx:                        actorCtx,
@@ -216,11 +217,12 @@ func (h *SecondJobUpdateInstanceStatusHandler) need2KillSelf() error {
 		return nil
 	}
 	jobIdAndInstanceId := utils.GetUniqueIdWithoutTaskId(h.jobInstanceInfo.GetJobId(), h.jobInstanceInfo.GetJobInstanceId())
-	if utils.GetHealthTimeHolder().IsServerHeartbeatHealthTimeout(missServerKillTime) {
+	groupID := h.jobInstanceInfo.GetGroupId()
+	if utils.GetHealthTimeHolder().IsGroupServerHeartbeatHealthTimeout(groupID, missServerKillTime) {
 		if err := h.taskMaster.KillInstance("killed, because of worker missed active server."); err != nil {
 			return err
 		}
-		logger.Warnf("Missed server timeout=%dms, kill jobIdAndInstanceId=%s.", utils.GetHealthTimeHolder().GetServerHeartbeatMsInterval(), jobIdAndInstanceId)
+		logger.Warnf("Missed server timeout=%dms, groupId=%s, kill jobIdAndInstanceId=%s.", utils.GetHealthTimeHolder().GetGroupServerHeartbeatMsInterval(groupID), groupID, jobIdAndInstanceId)
 
 	}
 	if h.taskMaster.GetAliveCheckWorkerSet().Len() == 0 && len(h.taskMaster.GetJobInstanceInfo().GetAllWorkers()) == 0 {
